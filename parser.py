@@ -137,6 +137,17 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
         print(eval_arithmetic(m.group(1), state))
         return
 
+    m = re.fullmatch(r"1\(\^(.+)\^\)", stmt)
+    if m:
+        literal = m.group(1)
+        if re.fullmatch(r"[+-]?[0-9]+", literal):
+            print(int(literal))
+        elif re.fullmatch(r"[+-]?(?:[0-9]+\.[0-9]+|[0-9]+)", literal):
+            print(float(literal))
+        else:
+            print(literal)
+        return
+
     m = re.fullmatch(r"1\(&(\w+)\)", stmt)
     if m:
         print(state.env.get('&' + m.group(1), 'undef'))
