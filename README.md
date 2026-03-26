@@ -160,7 +160,7 @@ Supported targets: integer types, `f`, `b`, `£`.
 Define function:
 
 ```text
-#echo'i.msg'#{1(&msg)}
+#echo'msg.i4'#{1(&msg)}
 ```
 
 Call function:
