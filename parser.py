@@ -397,7 +397,7 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
         store_value(state, name, value, '£')
         return
 
-    m = re.fullmatch(r"\[(\w+)\]\$([A-Za-z£]+)", stmt)
+    m = re.fullmatch(r"\[(\w+)\]\$([A-Za-z£][A-Za-z0-9]*)", stmt)
     if m:
         name = m.group(1)
         raw_target = m.group(2).lower()
@@ -407,7 +407,8 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
         value = get_var(state, name)
         src_type = state.types.get(name, infer_type_code(value))
         new_value, new_type = convert_value(value, src_type, target_type)
-        store_value(state, name, new_value, new_type)
+        state.env[name] = new_value
+        state.types[name] = new_type
         return
 
     m = re.fullmatch(r"\[(\w+)\]~([/\\])", stmt)
