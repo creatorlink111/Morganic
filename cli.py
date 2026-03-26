@@ -3,19 +3,20 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 if __package__ is None:
     sys.path.insert(0, str(Path(__file__).parent.parent))
     __package__ = 'morganic'
 
-# We keep these at the top, but if the error persists, 
+# We keep these at the top, but if the error persists,
 # it means parser.py is importing from cli.py.
 from .errors import MorganicError
 
 RESET = "\033[0m"
 COLORS = {
-    "var": "\033[32m",      # green
-    "func": "\033[35m",     # magenta
+    "var": "\033[32m",  # green
+    "func": "\033[35m",  # magenta
     "builtin": "\033[36m",  # cyan
     "comment": "\033[90m",  # grey
     "string": "\033[33m",   # yellow
@@ -37,29 +38,98 @@ def colorize_source_line(line: str) -> str:
     return f"{COLORS['plain']}{result}{RESET}"
 
 
+def _read_repl_line(prompt: str) -> str:
+    """
+    Read a REPL line with live syntax highlighting when prompt_toolkit is available.
+    Falls back to plain input() if not installed.
+    """
+    try:
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.styles import Style
+        from prompt_toolkit.lexers import Lexer
+
+        class MorganicLexer(Lexer):
+            def lex_document(self, document: Any):
+                def get_line(_lineno: int):
+                    text = document.lines[_lineno]
+                    if not text:
+                        return [("class:plain", "")]
+
+                    spans: list[tuple[str, str]] = []
+                    patterns = [
+                        (r"%%.*?%|%.*$", "class:comment"),
+                        (r"£[^\n:]*", "class:string"),
+                        (r"#[A-Za-z_][A-Za-z0-9_]*", "class:func"),
+                        (r"\[[A-Za-z_][A-Za-z0-9_]*\]|`[A-Za-z_][A-Za-z0-9_]*|&[A-Za-z_][A-Za-z0-9_]*", "class:var"),
+                        (r"\b[0-4]\(\)|\b[0-4]\(", "class:builtin"),
+                    ]
+
+                    i = 0
+                    while i < len(text):
+                        matched = False
+                        for pattern, style_name in patterns:
+                            m = re.match(pattern, text[i:])
+                            if m:
+                                token = m.group(0)
+                                spans.append((style_name, token))
+                                i += len(token)
+                                matched = True
+                                break
+                        if not matched:
+                            spans.append(("class:plain", text[i]))
+                            i += 1
+                    return spans
+
+                return get_line
+
+        style = Style.from_dict(
+            {
+                "plain": "ansigray",
+                "comment": "ansibrightblack",
+                "string": "ansiyellow",
+                "func": "ansimagenta",
+                "var": "ansigreen",
+                "builtin": "ansicyan",
+            }
+        )
+        session = PromptSession()
+        line = session.prompt(
+            prompt,
+            lexer=MorganicLexer(),
+            style=style,
+        )
+        return line
+    except Exception:
+        return input(prompt)
+
+
 def repl() -> None:
-    from .parser import execute_program
+    from .parser import execute_program, try_eval_and_print_inline_expression
     from .state import MorganicState
     """Standard REPL for the Morganic language."""
     state = MorganicState()
     print("Morganic REPL")
     print("Press Ctrl+C or Ctrl+D to exit.")
-    
+
     while True:
         try:
-            line = input(">>> ")
+            line = _read_repl_line(">>> ")
             if not line.strip():
                 continue
-            print(colorize_source_line(line))
+            if try_eval_and_print_inline_expression(line, state):
+                continue
             execute_program(line, state)
-        except (EOFError, KeyboardInterrupt):
+        except EOFError:
             print("\nExiting...")
             break
+        except KeyboardInterrupt:
+            print()
+            continue
         except MorganicError as e:
             print(f"Error: {e}")
 
 def main(argv: list[str] | None = None) -> int:
-    from .parser import execute_program
+    from .parser import execute_program, try_eval_and_print_inline_expression
     from .state import MorganicState
     """Main entry point handling file execution and -c flags."""
     if argv is None:
@@ -78,7 +148,9 @@ def main(argv: list[str] | None = None) -> int:
             print('Usage: python -m morganic -c "code"')
             return 1
         try:
-            execute_program(argv[2], state)
+            code = argv[2]
+            if not try_eval_and_print_inline_expression(code, state):
+                execute_program(code, state)
             return 0
         except MorganicError as e:
             print(f"Error: {e}")
@@ -87,7 +159,7 @@ def main(argv: list[str] | None = None) -> int:
     # 3. File Execution or String Execution
     arg = argv[1]
     path = Path(arg)
-    
+
     try:
         # Check if the argument is a path to an actual file
         if path.is_file():
@@ -97,8 +169,9 @@ def main(argv: list[str] | None = None) -> int:
         else:
             # Treat the argument itself as code (e.g., morganic "print(5)")
             code = arg
-            
-        execute_program(code, state)
+
+        if not try_eval_and_print_inline_expression(code, state):
+            execute_program(code, state)
         return 0
     except MorganicError as e:
         print(f"Error: {e}")

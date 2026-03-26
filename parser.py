@@ -406,6 +406,29 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
     raise MorganicError(f"Unrecognized: {stmt}")
 
 
+def try_eval_and_print_inline_expression(program: str, state: MorganicState) -> bool:
+    """
+    If the input is a single inline arithmetic expression (`|...|` or `{...}`),
+    evaluate and print it directly.
+    """
+    statements = split_statements(program)
+    if len(statements) != 1:
+        return False
+    stmt = statements[0].strip()
+
+    m = re.fullmatch(r"\|(.+)\|", stmt, re.DOTALL)
+    if m:
+        print(eval_arithmetic(m.group(1).strip(), state))
+        return True
+
+    m = re.fullmatch(r"\{(.+)\}", stmt, re.DOTALL)
+    if m:
+        print(eval_arithmetic(m.group(1).strip(), state))
+        return True
+
+    return False
+
+
 def execute_program(program: str, state: MorganicState) -> None:
     for stmt in split_statements(program):
         execute_statement(stmt, state)
