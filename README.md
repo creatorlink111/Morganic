@@ -62,7 +62,7 @@ python -m morganic -c "[x]=^10^" --interactive
 - `f` float
 - `b` boolean (`/` true, `\` false)
 - `£` string
-- `l(b)` list of booleans
+- `l(type)` typed list (`l(i4)`, `l(f)`, `l(£)`, etc.)
 
 ### 3) Literals
 
@@ -70,7 +70,7 @@ python -m morganic -c "[x]=^10^" --interactive
 - Typed integer: `i8^12^`
 - String: `£hello`
 - Boolean: `b/` or `b\`
-- Bool list: `l(b)</,\,/>`
+- Typed list: `l(i4)<i4^1^,i4^2^>` or `l(£)<£a,£b>`
 
 > Note: bare numeric tokens (like `3`) are invalid in value expressions; use `^3^`.
 
@@ -79,10 +79,13 @@ python -m morganic -c "[x]=^10^" --interactive
 - Assignment: `[name]=<expr>`
 - Read by bracket: `[name]`
 - Read in arithmetic: `` `name ``
+- Read variable type: `"[name]` (returns canonical type name as string)
 
 ```text
 [value]=^42^
 1([value])
+[kind]="[value]
+1([kind])
 ```
 
 ### 5) Operators

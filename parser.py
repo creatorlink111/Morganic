@@ -80,6 +80,55 @@ def infer_type_code(value: Any) -> str:
     return type(value).__name__[0].lower()
 
 
+def canonical_type_name(type_code: str | None) -> str:
+    """Return a human-friendly canonical type name for display."""
+    if not type_code:
+        return 'Unknown'
+    if type_code == 'b':
+        return 'Boolean'
+    if type_code == 'f':
+        return 'Float'
+    if type_code == 'i':
+        return 'Integer'
+    if is_integer_type(type_code):
+        return f'Integer{type_code[1:]}'
+    if type_code == '£':
+        return 'String'
+    if type_code.startswith('l(') and type_code.endswith(')'):
+        inner = type_code[2:-1]
+        return f"List<{canonical_type_name(inner)}>"
+    return type_code
+
+
+def split_top_level_csv(raw: str) -> list[str]:
+    """Split comma-separated text while respecting nested delimiters."""
+    tokens: list[str] = []
+    buf: list[str] = []
+    depth = {'(': 0, '[': 0, '{': 0, '<': 0}
+    pairs = {'(': ')', '[': ']', '{': '}', '<': '>'}
+    for ch in raw:
+        if ch in depth:
+            depth[ch] += 1
+            buf.append(ch)
+            continue
+        if ch in pairs.values():
+            for k, v in pairs.items():
+                if v == ch:
+                    depth[k] = max(0, depth[k] - 1)
+                    break
+            buf.append(ch)
+            continue
+        if ch == ',' and all(level == 0 for level in depth.values()):
+            tokens.append(''.join(buf).strip())
+            buf = []
+            continue
+        buf.append(ch)
+    tail = ''.join(buf).strip()
+    if tail:
+        tokens.append(tail)
+    return tokens
+
+
 def store_value(state: MorganicState, name: str, value: Any, type_code: str | None = None) -> None:
     """Store a value in state while enforcing Morganic type safety rules."""
     resolved_type = type_code or infer_type_code(value)
@@ -142,6 +191,13 @@ def parse_value_expr(expr: str, state: MorganicState) -> tuple[Any, str | None]:
         name = m.group(1)
         return get_var(state, name), state.types.get(name)
 
+    m = re.fullmatch(r"\"\[(\w+)\]", expr)
+    if m:
+        name = m.group(1)
+        if name not in state.env:
+            raise MorganicError("Undefined variable", token=name, hint="Define it before reading type with \"[name].")
+        return canonical_type_name(state.types.get(name)), '£'
+
     m = re.fullmatch(r"\|(.+)\|", expr, re.DOTALL)
     if m:
         value = eval_arithmetic(m.group(1).strip(), state)
@@ -152,14 +208,25 @@ def parse_value_expr(expr: str, state: MorganicState) -> tuple[Any, str | None]:
         name = m.group(1)
         return get_var(state, name), state.types.get(name)
 
-    m = re.fullmatch(r"l\(b\)<(.*)>", expr)
+    m = re.fullmatch(r"l\(([A-Za-z£][A-Za-z0-9£]*)\)<(.*)>", expr, re.DOTALL)
     if m:
-        inside = m.group(1).strip()
+        raw_inner_type = m.group(1).strip().lower()
+        element_type = TYPE_ALIASES.get(raw_inner_type, m.group(1).strip())
+        if element_type == 'l' or (element_type not in {'b', 'f', '£'} and not is_integer_type(element_type)):
+            raise MorganicError(f"Unsupported list element type: {m.group(1)}")
+        inside = m.group(2).strip()
         if not inside:
-            return [], 'l(b)'
-        raw_tokens = [tok.strip() for tok in inside.split(',')]
-        values = [parse_bool_token(tok) for tok in raw_tokens]
-        return values, 'l(b)'
+            return [], f'l({element_type})'
+        raw_tokens = split_top_level_csv(inside)
+        values = []
+        for token in raw_tokens:
+            value, value_type = parse_value_expr(token, state)
+            if value_type != element_type:
+                raise MorganicError(
+                    f"Type safety violation: list expects {element_type}, got {value_type}."
+                )
+            values.append(value)
+        return values, f'l({element_type})'
 
     if expr in {'/', '\\'}:
         return parse_bool_token(expr), 'b'
@@ -423,16 +490,20 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
         state.types[name] = new_type
         return
 
-    m = re.fullmatch(r"\[(\w+)\]~([/\\])", stmt)
+    m = re.fullmatch(r"\[(\w+)\]~(.+)", stmt, re.DOTALL)
     if m:
         name = m.group(1)
-        token = m.group(2)
+        expr = m.group(2).strip()
         if name not in state.env:
             raise MorganicError(f"Undefined: {name}")
         list_type = state.types.get(name)
-        if list_type != 'l(b)':
+        if not list_type or not re.fullmatch(r"l\((.+)\)", list_type):
+            raise MorganicError("Append requires a typed list variable.")
+        element_type = re.fullmatch(r"l\((.+)\)", list_type).group(1)
+        value, value_type = parse_value_expr(expr, state)
+        if value_type != element_type:
             raise MorganicError("Type safety violation: append type does not match list type.")
-        state.env[name].append(parse_bool_token(token))
+        state.env[name].append(value)
         return
 
     m = re.fullmatch(r"\[(\w+)\]=(.*)", stmt, re.DOTALL)
@@ -477,6 +548,12 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
     m = re.fullmatch(r"1\((£.*)\)", stmt, re.DOTALL)
     if m:
         print(m.group(1)[1:])
+        return
+
+    m = re.fullmatch(r"1\(\"(\[\w+\])\)", stmt)
+    if m:
+        value, _ = parse_value_expr(f"\"{m.group(1)}", state)
+        print(value)
         return
 
     raise MorganicError(
