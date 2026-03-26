@@ -26,7 +26,7 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
         return
 
     # Function definition
-    m = re.match(r"#(\w+)(.*)#\{(.*)\}", stmt, re.DOTALL)
+    m = re.fullmatch(r"#(\w+)((?:'\w+\.[bifsl£]+')*)#\{(.*)\}", stmt, re.DOTALL)
     if m:
         name = m.group(1)
         params_str = m.group(2)
@@ -36,11 +36,12 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
         return
 
     # Function call #print_num ^4^ or #grey /
+    # Inline spaces are only supported for function-call arguments.
     if stmt.startswith('#'):
-        m = re.match(r"#(\w+)(.*)", stmt)
+        m = re.fullmatch(r"#(\w+)(?:\s+(.+))?", stmt)
         if m:
             name, args_part = m.groups()
-            args = re.split(r'\s+', args_part.strip())
+            args = re.split(r'\s+', args_part.strip()) if args_part else []
             func = state.functions.get(name)
             if func:
                 ps = func['params']
@@ -64,13 +65,13 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
                     return
 
     # [a]=i^42^
-    m = re.fullmatch(r"\[(\w+)\]\s*=\s*i\^([0-9]+)\^", stmt)
+    m = re.fullmatch(r"\[(\w+)\]=i\^([0-9]+)\^", stmt)
     if m:
         store_value(state, m.group(1), int(m.group(2)), 'i')
         return
 
     # [b]=b/
-    m = re.fullmatch(r"\[(\w+)\]\s*=\s*b([/\\])", stmt)
+    m = re.fullmatch(r"\[(\w+)\]=b([/\\])", stmt)
     if m:
         store_value(state, m.group(1), m.group(2) == '/', 'b')
         return
