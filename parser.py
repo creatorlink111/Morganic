@@ -62,6 +62,11 @@ def parse_bool_token(token: str) -> bool:
 def parse_value_expr(expr: str, state: MorganicState) -> tuple[Any, str | None]:
     expr = expr.strip()
 
+    m = re.fullmatch(r"\[(\w+)\]", expr)
+    if m:
+        name = m.group(1)
+        return get_var(state, name), state.types.get(name)
+
     m = re.fullmatch(r"\|(.+)\|", expr, re.DOTALL)
     if m:
         value = eval_arithmetic(m.group(1).strip(), state)
@@ -138,6 +143,13 @@ def convert_value(value: Any, src_type: str, target_type: str) -> tuple[Any, str
         raise MorganicError(f"Incompatible conversion: {src_type} -> £")
 
     raise MorganicError(f"Unsupported target conversion type: {target_type}")
+
+
+def parse_loop_range_operand(expr: str, state: MorganicState) -> int:
+    value, _ = parse_value_expr(expr, state)
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise MorganicError("For loop range bounds must be integers.")
+    return value
 
 
 def execute_statement(stmt: str, state: MorganicState) -> None:
@@ -217,6 +229,67 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
                 raise MorganicError("While loop guard triggered (possible infinite loop).")
         return
 
+    m = re.fullmatch(r"4\((.+?),(.+?)\)\{(.*)\}", stmt, re.DOTALL)
+    if m:
+        first = m.group(1).strip()
+        second = m.group(2).strip()
+        body = m.group(3)
+
+        iterable_ref = re.fullmatch(r"_\[(\w+)\]", second)
+        if iterable_ref:
+            var_name = first
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", var_name):
+                raise MorganicError("Invalid loop variable name.")
+            seq_name = iterable_ref.group(1)
+            seq = get_var(state, seq_name)
+            if not isinstance(seq, list):
+                raise MorganicError("List iteration requires a list variable.")
+
+            key = '&' + var_name
+            had_old = key in state.env
+            old_value = state.env.get(key)
+            old_type = state.types.get(key)
+            for item in seq:
+                store_value(state, key, item)
+                execute_program(body, state)
+            if had_old:
+                state.env[key] = old_value
+                if old_type is not None:
+                    state.types[key] = old_type
+            else:
+                state.env.pop(key, None)
+                state.types.pop(key, None)
+            return
+
+        str_ref = re.fullmatch(r"\[(\w+)\]", second)
+        if str_ref and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", first):
+            var_name = first
+            value = get_var(state, str_ref.group(1))
+            if not isinstance(value, str):
+                raise MorganicError("Character iteration requires a string variable.")
+
+            key = '&' + var_name
+            had_old = key in state.env
+            old_value = state.env.get(key)
+            old_type = state.types.get(key)
+            for ch in value:
+                store_value(state, key, ch, '£')
+                execute_program(body, state)
+            if had_old:
+                state.env[key] = old_value
+                if old_type is not None:
+                    state.types[key] = old_type
+            else:
+                state.env.pop(key, None)
+                state.types.pop(key, None)
+            return
+
+        start = parse_loop_range_operand(first, state)
+        end = parse_loop_range_operand(second, state)
+        for _ in range(start, end):
+            execute_program(body, state)
+        return
+
     m = re.fullmatch(r"\[(\w+)\]=;\((.*)\)", stmt, re.DOTALL)
     if m:
         name = m.group(1)
@@ -289,6 +362,11 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
     m = re.fullmatch(r"1\(&(\w+)\)", stmt)
     if m:
         print(state.env.get('&' + m.group(1), 'undef'))
+        return
+
+    m = re.fullmatch(r"1\((£.*)\)", stmt, re.DOTALL)
+    if m:
+        print(m.group(1)[1:])
         return
 
     raise MorganicError(f"Unrecognized: {stmt}")
