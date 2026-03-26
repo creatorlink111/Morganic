@@ -1,9 +1,15 @@
+"""Interpreter state containers."""
+
 from __future__ import annotations
 
-from typing import Any, Dict
+from dataclasses import dataclass, field
+from typing import Any
 
+
+@dataclass
 class MorganicState:
-    def __init__(self) -> None:
-        self.env: Dict[str, Any] = {}
-        self.types: Dict[str, str] = {}
-        self.functions: Dict[str, Any] = {}
+    """Runtime state for Morganic program execution."""
+
+    env: dict[str, Any] = field(default_factory=dict)
+    types: dict[str, str] = field(default_factory=dict)
+    functions: dict[str, Any] = field(default_factory=dict)

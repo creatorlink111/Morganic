@@ -1,9 +1,21 @@
+"""Source pre-processing and statement splitting utilities."""
+
 from __future__ import annotations
 
-from typing import List
+from dataclasses import dataclass
+
+
+@dataclass
+class StatementChunk:
+    """A top-level statement and the line where it begins."""
+
+    text: str
+    line: int
+
 
 def strip_comments(source: str) -> str:
-    out: List[str] = []
+    """Remove single-line (`%`) and block (`%%...%`) comments from source text."""
+    out: list[str] = []
     i = 0
     n = len(source)
     while i < n:
@@ -28,23 +40,30 @@ def strip_comments(source: str) -> str:
         i += 1
     return ''.join(out)
 
-def split_statements(source: str) -> List[str]:
-    """
-    Split source into top-level statements by ':'.
-    Ignores ':' inside (), [], {}, <>.
-    Supports nested { } for if-blocks.
-    """
+
+def split_statement_chunks(source: str) -> list[StatementChunk]:
+    """Split source into top-level statements by `:` while tracking start lines."""
     source = strip_comments(source)
-    out: List[str] = []
-    buf: List[str] = []
+    out: list[StatementChunk] = []
+    buf: list[str] = []
     depth = {'(': 0, '[': 0, '{': 0, '<': 0}
     pairs = {'(': ')', '[': ']', '{': '}', '<': '>'}
 
+    line = 1
+    current_stmt_line = 1
+
     for ch in source:
+        if ch == '\n':
+            line += 1
+
         if ch in '([{<':
             depth[ch] += 1
+            if not buf:
+                current_stmt_line = line
             buf.append(ch)
         elif ch in ')]}>':
+            if not buf:
+                current_stmt_line = line
             for k, v in pairs.items():
                 if v == ch:
                     depth[k] = max(0, depth[k] - 1)
@@ -53,11 +72,20 @@ def split_statements(source: str) -> List[str]:
         elif ch == ':' and all(d == 0 for d in depth.values()):
             part = ''.join(buf).strip()
             if part:
-                out.append(part)
+                out.append(StatementChunk(part, current_stmt_line))
             buf = []
+            current_stmt_line = line
         else:
+            if not buf:
+                current_stmt_line = line
             buf.append(ch)
+
     tail = ''.join(buf).strip()
     if tail:
-        out.append(tail)
+        out.append(StatementChunk(tail, current_stmt_line))
     return out
+
+
+def split_statements(source: str) -> list[str]:
+    """Compatibility helper that returns statement text only."""
+    return [chunk.text for chunk in split_statement_chunks(source)]
