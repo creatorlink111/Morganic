@@ -26,3 +26,17 @@ def test_invalid_numeric_literal_hint() -> None:
     with pytest.raises(MorganicError) as exc:
         execute_program("[x]=3", state)
     assert "^ ^" in str(exc.value)
+
+
+def test_typed_list_supports_non_boolean_elements() -> None:
+    state = MorganicState()
+    execute_program("[nums]=l(i4)<i4^1^,i4^2^>:[nums]~i4^3^", state)
+    assert state.env["nums"] == [1, 2, 3]
+    assert state.types["nums"] == "l(i4)"
+
+
+def test_type_query_expression_returns_canonical_name() -> None:
+    state = MorganicState()
+    execute_program("[v]=b/:[t]=\"[v]", state)
+    assert state.env["t"] == "Boolean"
+    assert state.types["t"] == "£"

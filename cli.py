@@ -124,7 +124,7 @@ def _needs_more_input(source: str) -> bool:
         elif ch in pairs:
             depth[pairs[ch]] = max(0, depth[pairs[ch]] - 1)
 
-    return any(depth.values()) or source.rstrip().endswith(':')
+    return any(depth.values())
 
 
 def _read_repl_statement() -> str:
