@@ -1,12 +1,14 @@
 # Morganic Language
 
 Morganic is a compact, statement-oriented toy language that uses symbolic syntax and `:` as its primary statement separator.
+Expect compact and unintuitive syntax reminiscent of brainf*ck in many aspects.
 
 This repository provides:
 - A Morganic parser/interpreter.
 - A REPL (`python -m morganic`).
 - File and inline execution support.
-
+- Easy scripting with .elemens extension
+- Quirks such as i2-i512 integers
 ---
 
 ## Installation / Running
@@ -213,7 +215,7 @@ Append boolean values with `~`:
 
 ## Functions
 
-Define functions with typed parameters and call by name.
+Define functions with typed parameters and call by name. The only acceptable use of inline spaces thus far is for calling functions with parameters.
 
 ```text
 #echo'i.msg'#{1(&msg)}
