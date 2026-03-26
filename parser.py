@@ -26,6 +26,10 @@ TYPE_ALIASES = {
 }
 
 
+def is_numeric_literal(expr: str) -> bool:
+    return bool(re.fullmatch(r"[+-]?(?:\d+\.\d+|\d+)", expr))
+
+
 def get_var(state: MorganicState, name: str) -> Any:
     if name not in state.env:
         raise MorganicError(f"Undefined: {name}")
@@ -47,8 +51,14 @@ def infer_type_code(value: Any) -> str:
 
 
 def store_value(state: MorganicState, name: str, value: Any, type_code: str | None = None) -> None:
+    resolved_type = type_code or infer_type_code(value)
+    existing_type = state.types.get(name)
+    if existing_type is not None and existing_type != resolved_type:
+        raise MorganicError(
+            f"Type safety violation: variable '{name}' is {existing_type}, cannot assign {resolved_type}."
+        )
     state.env[name] = value
-    state.types[name] = type_code or infer_type_code(value)
+    state.types[name] = resolved_type
 
 
 def parse_bool_token(token: str) -> bool:
@@ -61,6 +71,15 @@ def parse_bool_token(token: str) -> bool:
 
 def parse_value_expr(expr: str, state: MorganicState) -> tuple[Any, str | None]:
     expr = expr.strip()
+
+    m = re.fullmatch(r"\^(.+)\^", expr, re.DOTALL)
+    if m:
+        literal = m.group(1)
+        if re.fullmatch(r"[+-]?\d+", literal):
+            return int(literal), 'i'
+        if re.fullmatch(r"[+-]?(?:\d+\.\d+|\d+)", literal):
+            return float(literal), 'f'
+        return literal, '£'
 
     m = re.fullmatch(r"\[(\w+)\]", expr)
     if m:
@@ -92,11 +111,10 @@ def parse_value_expr(expr: str, state: MorganicState) -> tuple[Any, str | None]:
     if expr.startswith('£'):
         return expr[1:], '£'
 
-    if re.fullmatch(r"[+-]?\d+", expr):
-        return int(expr), 'i'
-
-    if re.fullmatch(r"[+-]?(?:\d+\.\d+|\d+)", expr):
-        return float(expr), 'f'
+    if is_numeric_literal(expr):
+        raise MorganicError(
+            "Numeric literals must be wrapped with ^ ^ (example: ^3^)."
+        )
 
     raise MorganicError(f"Unrecognized value expression: {expr}")
 
@@ -191,22 +209,38 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
             if func:
                 ps = func['params']
                 if len(args) == len(ps):
-                    saved = {}
+                    sentinel = object()
+                    saved_env = {}
+                    saved_types = {}
                     for i, (pn, pt) in enumerate(ps):
                         arg = args[i].strip()
-                        if arg.startswith('^') and arg.endswith('^'):
-                            lit = arg[1:-1]
-                            v = int(lit) if pt == 'i' else float(lit) if pt == 'f' else lit
-                        elif pt == 'b':
-                            v = arg == '/'
-                        else:
-                            v = arg
+                        value, actual_type = parse_value_expr(arg, state)
+                        if actual_type is None:
+                            actual_type = infer_type_code(value)
+                        if pt in {'i', 'f'} and not re.fullmatch(r"\^.+\^", arg, re.DOTALL):
+                            raise MorganicError(
+                                f"Numeric argument for '{pn}' must use ^ ^ (example: ^3^)."
+                            )
+                        if actual_type != pt:
+                            raise MorganicError(
+                                f"Type mismatch for '{pn}': expected {pt}, got {actual_type}."
+                            )
+                        v = value
                         k = '&' + pn
-                        saved[k] = state.env.get(k)
+                        saved_env[k] = state.env.get(k, sentinel)
+                        saved_types[k] = state.types.get(k, sentinel)
                         state.env[k] = v
+                        state.types[k] = pt
                     execute_program(func['body'], state)
-                    for k in saved:
-                        state.env[k] = saved[k] if saved[k] is not None else state.env.pop(k, None)
+                    for k in saved_env:
+                        if saved_env[k] is sentinel:
+                            state.env.pop(k, None)
+                        else:
+                            state.env[k] = saved_env[k]
+                        if saved_types[k] is sentinel:
+                            state.types.pop(k, None)
+                        else:
+                            state.types[k] = saved_types[k]
                     return
 
     m = re.fullmatch(r"2\((.+)\)\{(.*)\}", stmt, re.DOTALL)

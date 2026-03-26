@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -10,6 +11,30 @@ if __package__ is None:
 # We keep these at the top, but if the error persists, 
 # it means parser.py is importing from cli.py.
 from .errors import MorganicError
+
+RESET = "\033[0m"
+COLORS = {
+    "var": "\033[32m",      # green
+    "func": "\033[35m",     # magenta
+    "builtin": "\033[36m",  # cyan
+    "comment": "\033[90m",  # grey
+    "string": "\033[33m",   # yellow
+    "plain": "\033[37m",    # white
+}
+
+
+def colorize_source_line(line: str) -> str:
+    patterns = [
+        (r"(%%.*?%|%.*$)", "comment"),
+        (r"(£[^\n:]*)", "string"),
+        (r"(#[A-Za-z_][A-Za-z0-9_]*)", "func"),
+        (r"(\[[A-Za-z_][A-Za-z0-9_]*\]|`[A-Za-z_][A-Za-z0-9_]*|&[A-Za-z_][A-Za-z0-9_]*)", "var"),
+        (r"(\b[0-4]\(\)|\b[0-4]\()", "builtin"),
+    ]
+    result = line
+    for pattern, key in patterns:
+        result = re.sub(pattern, lambda m: f"{COLORS[key]}{m.group(0)}{RESET}", result)
+    return f"{COLORS['plain']}{result}{RESET}"
 
 
 def repl() -> None:
@@ -25,6 +50,7 @@ def repl() -> None:
             line = input(">>> ")
             if not line.strip():
                 continue
+            print(colorize_source_line(line))
             execute_program(line, state)
         except (EOFError, KeyboardInterrupt):
             print("\nExiting...")
@@ -65,6 +91,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         # Check if the argument is a path to an actual file
         if path.is_file():
+            if path.suffix and path.suffix not in {".elemens"}:
+                print(f"Warning: running non-.elemens file '{path.name}'.")
             code = path.read_text(encoding="utf-8")
         else:
             # Treat the argument itself as code (e.g., morganic "print(5)")
