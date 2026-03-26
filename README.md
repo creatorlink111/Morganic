@@ -1,6 +1,6 @@
 # Morganic Language
 
-Morganic is a compact, statement-oriented toy language with symbolic syntax and `:` as its top-level statement separator.
+Morganic is a compact, quirky, statement-oriented toy language with symbolic syntax and `:` as its top-level statement separator, and scripting with .elemens script extension.
 
 ## Installation
 
