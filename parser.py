@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, List
+from typing import Any
 
 from .arithmetic import eval_arithmetic
 from .errors import MorganicError
@@ -17,32 +17,134 @@ TYPE_ALIASES = {
     'integer': 'i',
     'f': 'f',
     'float': 'f',
-    's': 's',
-    'str': 's',
-    'string': 's',
+    's': '£',
+    'str': '£',
+    'string': '£',
     'l': 'l',
     'list': 'l',
     '£': '£',
 }
+
 
 def get_var(state: MorganicState, name: str) -> Any:
     if name not in state.env:
         raise MorganicError(f"Undefined: {name}")
     return state.env[name]
 
+
+def infer_type_code(value: Any) -> str:
+    if isinstance(value, bool):
+        return 'b'
+    if isinstance(value, int):
+        return 'i'
+    if isinstance(value, float):
+        return 'f'
+    if isinstance(value, str):
+        return '£'
+    if isinstance(value, list):
+        return 'l(?)'
+    return type(value).__name__[0].lower()
+
+
 def store_value(state: MorganicState, name: str, value: Any, type_code: str | None = None) -> None:
     state.env[name] = value
-    if type_code:
-        state.types[name] = type_code
-    else:
-        state.types[name] = type(value).__name__[0].lower()
+    state.types[name] = type_code or infer_type_code(value)
+
+
+def parse_bool_token(token: str) -> bool:
+    if token == '/':
+        return True
+    if token == '\\':
+        return False
+    raise MorganicError(f"Expected boolean token '/' or '\\', got: {token}")
+
+
+def parse_value_expr(expr: str, state: MorganicState) -> tuple[Any, str | None]:
+    expr = expr.strip()
+
+    m = re.fullmatch(r"\|(.+)\|", expr, re.DOTALL)
+    if m:
+        value = eval_arithmetic(m.group(1).strip(), state)
+        return value, infer_type_code(value)
+
+    m = re.fullmatch(r"`([A-Za-z_][A-Za-z0-9_]*)", expr)
+    if m:
+        name = m.group(1)
+        return get_var(state, name), state.types.get(name)
+
+    m = re.fullmatch(r"l\(b\)<(.*)>", expr)
+    if m:
+        inside = m.group(1).strip()
+        if not inside:
+            return [], 'l(b)'
+        raw_tokens = [tok.strip() for tok in inside.split(',')]
+        values = [parse_bool_token(tok) for tok in raw_tokens]
+        return values, 'l(b)'
+
+    if expr in {'/', '\\'}:
+        return parse_bool_token(expr), 'b'
+
+    if expr.startswith('£'):
+        return expr[1:], '£'
+
+    if re.fullmatch(r"[+-]?\d+", expr):
+        return int(expr), 'i'
+
+    if re.fullmatch(r"[+-]?(?:\d+\.\d+|\d+)", expr):
+        return float(expr), 'f'
+
+    raise MorganicError(f"Unrecognized value expression: {expr}")
+
+
+def eval_condition(condition_expr: str, state: MorganicState) -> bool:
+    if '..' not in condition_expr:
+        raise MorganicError("Condition must use equality operator '..'.")
+    left_raw, right_raw = condition_expr.split('..', 1)
+    left, _ = parse_value_expr(left_raw, state)
+    right, _ = parse_value_expr(right_raw, state)
+    return left == right
+
+
+def convert_value(value: Any, src_type: str, target_type: str) -> tuple[Any, str]:
+    if target_type == src_type:
+        return value, src_type
+
+    if target_type == 'i':
+        if src_type == 'f':
+            if int(value) != value:
+                raise MorganicError("Cannot convert non-whole float to integer.")
+            return int(value), 'i'
+        if src_type == '£' and re.fullmatch(r"[+-]?\d+", value):
+            return int(value), 'i'
+        raise MorganicError(f"Incompatible conversion: {src_type} -> i")
+
+    if target_type == 'f':
+        if src_type == 'i':
+            return float(value), 'f'
+        if src_type == '£' and re.fullmatch(r"[+-]?(?:\d+\.\d+|\d+)", value):
+            return float(value), 'f'
+        raise MorganicError(f"Incompatible conversion: {src_type} -> f")
+
+    if target_type == 'b':
+        if src_type == '£' and value in {'/', '\\'}:
+            return (value == '/'), 'b'
+        raise MorganicError(f"Incompatible conversion: {src_type} -> b")
+
+    if target_type == '£':
+        if src_type in {'i', 'f', 'b', '£'}:
+            if src_type == 'b':
+                return ('/' if value else '\\'), '£'
+            return str(value), '£'
+        raise MorganicError(f"Incompatible conversion: {src_type} -> £")
+
+    raise MorganicError(f"Unsupported target conversion type: {target_type}")
+
 
 def execute_statement(stmt: str, state: MorganicState) -> None:
     stmt = stmt.strip()
     if not stmt:
         return
 
-    # Function definition
     m = re.fullmatch(r"#(\w+)((?:'[\w£]+\.[\w£]+')*)#\{(.*)\}", stmt, re.DOTALL)
     if m:
         name = m.group(1)
@@ -54,17 +156,12 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
             left_type = TYPE_ALIASES.get(left.lower(), left if left == '£' else None)
             right_type = TYPE_ALIASES.get(right.lower(), right if right == '£' else None)
 
-            # Disambiguation for forms like 'int.i': prefer type-first aliases.
             if left_type and right_type and len(left) > 1 and len(right) == 1:
                 params.append((right, left_type))
                 continue
-
-            # Preferred form: 'name.type'
             if right_type:
                 params.append((left, right_type))
                 continue
-
-            # Also accept: 'type.name' (e.g. 'int.i')
             if left_type:
                 params.append((right, left_type))
                 continue
@@ -73,8 +170,6 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
         state.functions[name] = {'params': params, 'body': body.strip()}
         return
 
-    # Function call #print_num ^4^ or #grey /
-    # Inline spaces are only supported for function-call arguments.
     if stmt.startswith('#'):
         m = re.fullmatch(r"#(\w+)(?:\s+(.+))?", stmt)
         if m:
@@ -102,37 +197,80 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
                         state.env[k] = saved[k] if saved[k] is not None else state.env.pop(k, None)
                     return
 
-    # [a]=i^42^
-    m = re.fullmatch(r"\[(\w+)\]=i\^([0-9]+)\^", stmt)
+    m = re.fullmatch(r"2\((.+)\)\{(.*)\}", stmt, re.DOTALL)
     if m:
-        store_value(state, m.group(1), int(m.group(2)), 'i')
+        cond = m.group(1).strip()
+        body = m.group(2)
+        if eval_condition(cond, state):
+            execute_program(body, state)
         return
 
-    # [f]=f^3.14^
-    m = re.fullmatch(r"\[(\w+)\]=f\^([+-]?(?:\d+\.\d+|\d+))\^", stmt)
+    m = re.fullmatch(r"3\((.+)\)\{(.*)\}", stmt, re.DOTALL)
     if m:
-        store_value(state, m.group(1), float(m.group(2)), 'f')
+        cond = m.group(1).strip()
+        body = m.group(2)
+        loop_guard = 0
+        while eval_condition(cond, state):
+            execute_program(body, state)
+            loop_guard += 1
+            if loop_guard > 100000:
+                raise MorganicError("While loop guard triggered (possible infinite loop).")
         return
 
-    # [s]=£hello world
-    m = re.fullmatch(r"\[(\w+)\]=£(.*)", stmt)
+    m = re.fullmatch(r"\[(\w+)\]=;\((.*)\)", stmt, re.DOTALL)
     if m:
-        store_value(state, m.group(1), m.group(2), '£')
+        name = m.group(1)
+        prompt = m.group(2)
+        if prompt.startswith('£'):
+            prompt = prompt[1:]
+        value = input(prompt)
+        store_value(state, name, value, '£')
         return
 
-    # [b]=b/
-    m = re.fullmatch(r"\[(\w+)\]=b([/\\])", stmt)
+    m = re.fullmatch(r"\[(\w+)\]\$([A-Za-z£]+)", stmt)
     if m:
-        store_value(state, m.group(1), m.group(2) == '/', 'b')
+        name = m.group(1)
+        raw_target = m.group(2).lower()
+        target_type = TYPE_ALIASES.get(raw_target, m.group(2))
+        if target_type not in {'i', 'f', 'b', '£'}:
+            raise MorganicError(f"Unsupported conversion target: {m.group(2)}")
+        value = get_var(state, name)
+        src_type = state.types.get(name, infer_type_code(value))
+        new_value, new_type = convert_value(value, src_type, target_type)
+        store_value(state, name, new_value, new_type)
         return
 
-    # 1([a]) or 1({expr})
+    m = re.fullmatch(r"\[(\w+)\]~([/\\])", stmt)
+    if m:
+        name = m.group(1)
+        token = m.group(2)
+        if name not in state.env:
+            raise MorganicError(f"Undefined: {name}")
+        list_type = state.types.get(name)
+        if list_type != 'l(b)':
+            raise MorganicError("Type safety violation: append type does not match list type.")
+        state.env[name].append(parse_bool_token(token))
+        return
+
+    m = re.fullmatch(r"\[(\w+)\]=(.*)", stmt, re.DOTALL)
+    if m:
+        name = m.group(1)
+        expr = m.group(2)
+        value, type_code = parse_value_expr(expr, state)
+        store_value(state, name, value, type_code)
+        return
+
     m = re.fullmatch(r"1\(\[(\w+)\]\)", stmt)
     if m:
         print(get_var(state, m.group(1)))
         return
 
-    m = re.fullmatch(r"1\(\{(.+)\}\)", stmt)
+    m = re.fullmatch(r"1\(\|(.+)\|\)", stmt, re.DOTALL)
+    if m:
+        print(eval_arithmetic(m.group(1), state))
+        return
+
+    m = re.fullmatch(r"1\(\{(.+)\}\)", stmt, re.DOTALL)
     if m:
         print(eval_arithmetic(m.group(1), state))
         return
@@ -155,7 +293,7 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
 
     raise MorganicError(f"Unrecognized: {stmt}")
 
+
 def execute_program(program: str, state: MorganicState) -> None:
     for stmt in split_statements(program):
         execute_statement(stmt, state)
-
