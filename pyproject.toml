@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "morganic"
+version = "0.1.0"
+description = "Morganic toy language interpreter"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+repl = [
+  "prompt_toolkit>=3.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

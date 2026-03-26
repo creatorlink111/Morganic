@@ -1,22 +1,27 @@
 # Morganic Language
 
-Morganic is a compact, statement-oriented toy language that uses symbolic syntax and `:` as its primary statement separator.
-Expect compact and unintuitive syntax reminiscent of brainf*ck in many aspects.
+Morganic is a compact, statement-oriented toy language with symbolic syntax and `:` as its top-level statement separator.
 
-This repository provides:
-- A Morganic parser/interpreter.
-- A REPL (`python -m morganic`).
-- File and inline execution support.
-- Easy scripting with .elemens extension
-- Quirks such as i2-i512 integers
----
+## Installation
 
-## Installation / Running
+## Requirements
 
-From the repository root:
+- Python **3.10+**
+- Optional: `prompt_toolkit` for richer REPL highlighting
+
+## Setup
 
 ```bash
-python -m morganic
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+pip install -e .[dev]
+```
+
+Run REPL:
+
+```bash
+python -m morganic --repl
 ```
 
 Run inline code:
@@ -25,84 +30,84 @@ Run inline code:
 python -m morganic -c "[a]=^3^:[b]=^4^:1(|`a+`b|)"
 ```
 
-Run a source file:
+Run source file:
 
 ```bash
 python -m morganic script.elemens
 ```
 
+Run and then stay interactive:
+
+```bash
+python -m morganic -c "[x]=^10^" --interactive
+```
+
 ---
 
-## Core Syntax
+## Language Syntax Guide
 
-## 1) Statements
+### 1) Statement model
 
-Top-level statements are separated by `:`.
+- Statements are split by top-level `:`.
+- Newlines are allowed; they do **not** end statements by themselves.
 
 ```text
 [a]=^10^:[b]=^20^:1(|`a+`b|)
 ```
 
-Line breaks are allowed, but `:` is what actually splits statements.
+### 2) Data types
 
-## 2) Variables
+- `i` integer
+- `i2..i512` sized signed integers
+- `f` float
+- `b` boolean (`/` true, `\` false)
+- `£` string
+- `l(b)` list of booleans
 
-- Assign: `[name]=...`
-- Read as a value expression: `[name]` or `` `name `` (context-dependent)
+### 3) Literals
+
+- Number: `^42^`, `^3.14^`
+- Typed integer: `i8^12^`
+- String: `£hello`
+- Boolean: `b/` or `b\`
+- Bool list: `l(b)</,\,/>`
+
+> Note: bare numeric tokens (like `3`) are invalid in value expressions; use `^3^`.
+
+### 4) Variables
+
+- Assignment: `[name]=<expr>`
+- Read by bracket: `[name]`
+- Read in arithmetic: `` `name ``
 
 ```text
 [value]=^42^
 1([value])
 ```
 
-## 3) Numeric literals
+### 5) Operators
 
-Numeric literals must be wrapped in `^...^`.
+#### Arithmetic (inside `|...|` or `{...}`)
 
-```text
-[n]=^123^
-[x]=^3.14^
-```
-
-Using raw numeric tokens without `^ ^` is rejected.
-
-## 4) Strings
-
-Strings are prefixed with `£`.
+- `+`, `-`, `*`, `/`, `//`, `%`
+- Unary `+` and `-`
+- Parentheses allowed
 
 ```text
-[msg]=£hello world
-1([msg])
+[a]=^8^:[b]=^2^:1(|(`a+2)*`b|)
 ```
 
-## 5) Booleans
+#### Comparison/condition
 
-- `/` means true
-- `\` means false
+- Equality only: `..`
 
 ```text
-[flag]=b/
-[off]=b\
+2([x]..^10^){1(£x is ten)}
 ```
 
-## 6) Arithmetic
+### 6) Statements and control flow
 
-Use `|...|` (or `{...}` in print/inline arithmetic contexts):
-
-```text
-[a]=^8^:[b]=^2^:1(|`a/`b|)
-```
-
-In REPL mode, a standalone arithmetic expression prints directly:
-
-```text
->>> |3+4|
-7
-```
-
-## 7) Printing
-
-`1(...)` prints:
+#### Print
 
 ```text
 1([name])
@@ -111,154 +116,147 @@ In REPL mode, a standalone arithmetic expression prints directly:
 1(|`a+`b|)
 ```
 
----
-
-## Types
-
-Morganic tracks variable types and enforces type safety on reassignment.
-
-### Built-in scalar types
-
-- `i` (generic integer)
-- sized integers: `i2`, `i4`, `i8`, `i16`, `i32`, `i64`, `i128`, `i256`, `i512`
-- `f` (float)
-- `b` (boolean)
-- `£` (string)
-
-### Typed integer literal assignment
-
-```text
-[a]=i8^12^
-[b]=i32^500000^
-```
-
-Sized integers are range-checked.
-
----
-
-## Type Conversion
-
-Use conversion syntax:
-
-```text
-[var]$targetType
-```
-
-Examples:
-
-```text
-[txt]=£656556
-[txt]$i32
-1([txt])
-```
-
-```text
-[n]=^12^
-[n]$£
-1([n])
-```
-
-Supported conversion targets include `i`, sized integer types like `i32`, `f`, `b`, and `£`.
-
-Notes:
-- Float -> integer conversion requires a whole-number float.
-- String -> integer/float conversion requires numeric string content.
-- String -> boolean expects `/` or `\`.
-- Invalid conversions raise an error.
-
----
-
-## Control Flow
-
-## 1) If
+#### If
 
 ```text
 2([x]..^10^){1(£x is ten)}
 ```
 
-## 2) While
+#### While
 
 ```text
 [i]=^0^:3([i]..^0^){1(£loop once):[i]=^1^}
 ```
 
-## 3) For/range loop
+#### For range
 
 ```text
-4(0,5){1(£hi)}
+4(0,3){1(£tick)}
 ```
 
-## 4) Iteration over string characters
+#### For each character in string
 
 ```text
 [s]=£abc:4(ch,[s]){1(&ch)}
 ```
 
----
-
-## Lists
-
-Current list literal support is for boolean lists:
+#### For each item in list variable
 
 ```text
-[flags]=l(b)</,\\,/>
+[flags]=l(b)</,\>:4(v,_[flags]){1(&v)}
 ```
 
-Append boolean values with `~`:
+### 7) Type conversion
 
 ```text
-[flags]~/
-[flags]~\\
+[txt]=£656556:[txt]$i32
+[n]=^12^:[n]$£
 ```
 
----
+Supported targets: integer types, `f`, `b`, `£`.
 
-## Functions
+### 8) Functions
 
-Define functions with typed parameters and call by name. The only acceptable use of inline spaces thus far is for calling functions with parameters.
+Define function:
 
 ```text
 #echo'i.msg'#{1(&msg)}
+```
+
+Call function:
+
+```text
 #echo £hello
 ```
 
----
-
-## Input
-
-Read input into a string variable:
+### 9) Input
 
 ```text
 [name]=;(£Enter your name: )
 ```
 
----
+### 10) Comments
 
-## Comments
-
-- Single-line comment: `% comment`
-- Block comment: `%% comment block %`
+- Single line: `% comment`
+- Block: `%% comment block %`
 
 ---
 
-## Common Errors and Fixes
+## Multi-step Script Examples
 
-- **`Numeric literals must be wrapped with ^ ^`**
-  - Fix: use `^3^` instead of `3`.
-- **`Unrecognized: ...`**
-  - Usually means statement syntax is malformed.
-  - Ensure statements are separated by `:`.
-- **Type conversion errors**
-  - Verify the variable currently holds a convertible value.
-  - Use a valid target type (`i`, `i32`, `f`, `b`, `£`, etc.).
-- **Integer overflow for sized integers**
-  - Use a wider integer type (e.g., `i64` instead of `i8`).
+### Example: arithmetic pipeline
+
+```text
+[a]=^5^:
+[b]=^7^:
+[sum]=|`a+`b|:
+[scaled]=|`sum*2|:
+1(£result=):
+1([scaled])
+```
+
+### Example: typed conversion flow
+
+```text
+[raw]=£42:
+[raw]$i32:
+[val]=|`raw+8|:
+[val]$£:
+1(£converted=):
+1([val])
+```
+
+### Example: branch + loop
+
+```text
+[count]=^0^:
+2([count]..^0^){1(£starting)}:
+3([count]..^0^){
+  [count]=^1^:
+  1(£done)
+}
+```
 
 ---
 
-## REPL Tips
+## Testing
 
-- Start with `python -m morganic`.
-- Exit with `Ctrl+C` or `Ctrl+D`.
-- Inline arithmetic (`|...|`) prints immediately.
-- If `prompt_toolkit` is installed, interactive syntax coloring is enabled.
+Run tests:
+
+```bash
+pytest
+```
+
+Current tests cover:
+
+- arithmetic evaluation
+- parser assignment/expression flow
+- splitter line tracking
+- error surfaces (invalid syntax, division by zero)
+
+---
+
+## Error handling
+
+Errors now include structured context when available:
+
+- line number (`line=...`)
+- offending token (`token='...'`)
+- syntax hint (`hint=...`)
+
+Example:
+
+```text
+Error: Unrecognized statement | line=2 | token='??bad' | hint=Check delimiters and required forms like [x]=..., 1(...), 2(...){...}.
+```
+
+---
+
+## Project layout
+
+- `parser.py` — statement parsing and execution
+- `arithmetic.py` — safe arithmetic evaluator
+- `splitter.py` — comment stripping and statement splitting
+- `cli.py` — REPL and command-line entrypoint
+- `state.py` — runtime state model
+- `errors.py` — structured language errors

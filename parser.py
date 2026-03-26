@@ -5,7 +5,7 @@ from typing import Any
 
 from .arithmetic import eval_arithmetic
 from .errors import MorganicError
-from .splitter import split_statements
+from .splitter import split_statement_chunks, split_statements
 from .state import MorganicState
 
 TYPE_ALIASES = {
@@ -29,10 +29,12 @@ for bits in (2, 4, 8, 16, 32, 64, 128, 256, 512):
 
 
 def is_integer_type(type_code: str | None) -> bool:
+    """Return True when type code is `i` or one of the sized integer forms."""
     return bool(type_code) and bool(re.fullmatch(r"i(?:2|4|8|16|32|64|128|256|512)?", type_code))
 
 
 def integer_bounds(type_code: str) -> tuple[int, int] | None:
+    """Return signed integer bounds for sized integer types, otherwise None."""
     if type_code == 'i':
         return None
     m = re.fullmatch(r"i(2|4|8|16|32|64|128|256|512)", type_code)
@@ -43,6 +45,7 @@ def integer_bounds(type_code: str) -> tuple[int, int] | None:
 
 
 def validate_integer_range(value: int, type_code: str) -> None:
+    """Validate integer fits in target integer type, raising on overflow."""
     bounds = integer_bounds(type_code)
     if bounds is None:
         return
@@ -52,16 +55,18 @@ def validate_integer_range(value: int, type_code: str) -> None:
 
 
 def is_numeric_literal(expr: str) -> bool:
+    """Return True when expression text is a plain numeric literal."""
     return bool(re.fullmatch(r"[+-]?(?:\d+\.\d+|\d+)", expr))
 
 
 def get_var(state: MorganicState, name: str) -> Any:
     if name not in state.env:
-        raise MorganicError(f"Undefined: {name}")
+        raise MorganicError("Undefined variable", token=name, hint="Define it before use with [name]=...")
     return state.env[name]
 
 
 def infer_type_code(value: Any) -> str:
+    """Infer Morganic type code from a Python runtime value."""
     if isinstance(value, bool):
         return 'b'
     if isinstance(value, int):
@@ -76,6 +81,7 @@ def infer_type_code(value: Any) -> str:
 
 
 def store_value(state: MorganicState, name: str, value: Any, type_code: str | None = None) -> None:
+    """Store a value in state while enforcing Morganic type safety rules."""
     resolved_type = type_code or infer_type_code(value)
     existing_type = state.types.get(name)
     if existing_type and is_integer_type(existing_type) and isinstance(value, int) and not isinstance(value, bool):
@@ -96,6 +102,7 @@ def store_value(state: MorganicState, name: str, value: Any, type_code: str | No
 
 
 def parse_bool_token(token: str) -> bool:
+    """Parse Morganic boolean token into Python bool."""
     if token == '/':
         return True
     if token == '\\':
@@ -104,6 +111,7 @@ def parse_bool_token(token: str) -> bool:
 
 
 def parse_value_expr(expr: str, state: MorganicState) -> tuple[Any, str | None]:
+    """Parse/resolve value expression and return `(value, type_code)`."""
     expr = expr.strip()
 
     m = re.fullmatch(r"b([/\\])", expr)
@@ -168,6 +176,7 @@ def parse_value_expr(expr: str, state: MorganicState) -> tuple[Any, str | None]:
 
 
 def eval_condition(condition_expr: str, state: MorganicState) -> bool:
+    """Evaluate Morganic equality condition expression (`..`)."""
     if '..' not in condition_expr:
         raise MorganicError("Condition must use equality operator '..'.")
     left_raw, right_raw = condition_expr.split('..', 1)
@@ -177,6 +186,7 @@ def eval_condition(condition_expr: str, state: MorganicState) -> bool:
 
 
 def convert_value(value: Any, src_type: str, target_type: str) -> tuple[Any, str]:
+    """Convert a runtime value to a target Morganic type."""
     if target_type == src_type:
         return value, src_type
 
@@ -220,6 +230,7 @@ def convert_value(value: Any, src_type: str, target_type: str) -> tuple[Any, str
 
 
 def parse_loop_range_operand(expr: str, state: MorganicState) -> int:
+    """Parse range-loop bound operand as integer."""
     raw = expr.strip()
     if re.fullmatch(r"[+-]?\d+", raw):
         value = int(raw)
@@ -231,6 +242,7 @@ def parse_loop_range_operand(expr: str, state: MorganicState) -> int:
 
 
 def execute_statement(stmt: str, state: MorganicState) -> None:
+    """Execute one top-level Morganic statement."""
     stmt = stmt.strip()
     if not stmt:
         return
@@ -467,7 +479,11 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
         print(m.group(1)[1:])
         return
 
-    raise MorganicError(f"Unrecognized: {stmt}")
+    raise MorganicError(
+        "Unrecognized statement",
+        token=stmt,
+        hint="Check delimiters and required forms like [x]=..., 1(...), 2(...){...}.",
+    )
 
 
 def try_eval_and_print_inline_expression(program: str, state: MorganicState) -> bool:
@@ -494,5 +510,11 @@ def try_eval_and_print_inline_expression(program: str, state: MorganicState) -> 
 
 
 def execute_program(program: str, state: MorganicState) -> None:
-    for stmt in split_statements(program):
-        execute_statement(stmt, state)
+    """Execute a Morganic program split by top-level `:` statements."""
+    for chunk in split_statement_chunks(program):
+        try:
+            execute_statement(chunk.text, state)
+        except MorganicError as exc:
+            if exc.line is None:
+                raise MorganicError(exc.message, line=chunk.line, token=exc.token, hint=exc.hint) from exc
+            raise
