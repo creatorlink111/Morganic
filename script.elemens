@@ -1,7 +1,0 @@
-% Example .elemens script for Morganic
-[greeting]=£Hello from script.elemens:
-[counter]=^3^:
-1([greeting]):
-1([counter]):
-#show'i.value'#{1(&value)}:
-#show ^7^
