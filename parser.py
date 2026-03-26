@@ -102,17 +102,6 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
                         state.env[k] = saved[k] if saved[k] is not None else state.env.pop(k, None)
                     return
 
-    # 3([i]..^3^){ ... }
-    m = re.fullmatch(r"3\(\[(\w+)\]\.\.\^([+-]?[0-9]+)\^\)\{(.*)\}", stmt, re.DOTALL)
-    if m:
-        loop_var = m.group(1)
-        loop_end = int(m.group(2))
-        body = m.group(3).strip()
-        for i in range(loop_end):
-            store_value(state, loop_var, i, 'i')
-            execute_program(body, state)
-        return
-
     # [a]=i^42^
     m = re.fullmatch(r"\[(\w+)\]=i\^([0-9]+)\^", stmt)
     if m:
