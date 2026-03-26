@@ -8,6 +8,23 @@ from .errors import MorganicError
 from .splitter import split_statements
 from .state import MorganicState
 
+TYPE_ALIASES = {
+    'b': 'b',
+    'bool': 'b',
+    'boolean': 'b',
+    'i': 'i',
+    'int': 'i',
+    'integer': 'i',
+    'f': 'f',
+    'float': 'f',
+    's': 's',
+    'str': 's',
+    'string': 's',
+    'l': 'l',
+    'list': 'l',
+    '£': '£',
+}
+
 def get_var(state: MorganicState, name: str) -> Any:
     if name not in state.env:
         raise MorganicError(f"Undefined: {name}")
@@ -26,12 +43,33 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
         return
 
     # Function definition
-    m = re.fullmatch(r"#(\w+)((?:'\w+\.[bifsl£]+')*)#\{(.*)\}", stmt, re.DOTALL)
+    m = re.fullmatch(r"#(\w+)((?:'[\w£]+\.[\w£]+')*)#\{(.*)\}", stmt, re.DOTALL)
     if m:
         name = m.group(1)
         params_str = m.group(2)
         body = m.group(3)
-        params = re.findall(r"'(\w+)\.([bifsl£]+)'", params_str)
+        raw_params = re.findall(r"'([\w£]+)\.([\w£]+)'", params_str)
+        params = []
+        for left, right in raw_params:
+            left_type = TYPE_ALIASES.get(left.lower(), left if left == '£' else None)
+            right_type = TYPE_ALIASES.get(right.lower(), right if right == '£' else None)
+
+            # Disambiguation for forms like 'int.i': prefer type-first aliases.
+            if left_type and right_type and len(left) > 1 and len(right) == 1:
+                params.append((right, left_type))
+                continue
+
+            # Preferred form: 'name.type'
+            if right_type:
+                params.append((left, right_type))
+                continue
+
+            # Also accept: 'type.name' (e.g. 'int.i')
+            if left_type:
+                params.append((right, left_type))
+                continue
+
+            raise MorganicError(f"Bad parameter declaration: '{left}.{right}'")
         state.functions[name] = {'params': params, 'body': body.strip()}
         return
 
@@ -68,6 +106,18 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
     m = re.fullmatch(r"\[(\w+)\]=i\^([0-9]+)\^", stmt)
     if m:
         store_value(state, m.group(1), int(m.group(2)), 'i')
+        return
+
+    # [f]=f^3.14^
+    m = re.fullmatch(r"\[(\w+)\]=f\^([+-]?(?:\d+\.\d+|\d+))\^", stmt)
+    if m:
+        store_value(state, m.group(1), float(m.group(2)), 'f')
+        return
+
+    # [s]=£hello world
+    m = re.fullmatch(r"\[(\w+)\]=£(.*)", stmt)
+    if m:
+        store_value(state, m.group(1), m.group(2), '£')
         return
 
     # [b]=b/
