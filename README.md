@@ -1,9 +1,9 @@
 # Morganic Language
 
-Morganic is a compact, quirky, statement-oriented toy language with symbolic syntax and `:` as its top-level statement separator, and scripting with .elemens script extension.
+Morganic is a compact, quirky, statement-oriented toy language with symbolic syntax and `:` as its top-level statement separator, and scripting with `.elemens` script extension.
 
 ## Installation
-
+Just download ts or clone it or smth idk
 ## Requirements
 
 - Python **3.10+**
