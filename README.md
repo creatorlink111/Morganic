@@ -28,7 +28,22 @@ Top-level statements are split by `:`.
 [value]=^42^
 ```
 
-### 3) String values
+Typed integer assignment is also supported:
+
+```text
+[a]=i^4^:[b]=i8^15^:[c]=i32^47373^
+```
+
+Sized integers currently support: `i2`, `i4`, `i8`, `i16`, `i32`, `i64`, `i128`, `i256`, `i512`.
+
+### 3) Boolean values
+
+Use `/` for true and `\` for false.
+
+```text
+[flag]=b/:[other]=b\:1([flag]):1([other])
+```
+### 4) String values
 
 Prefix with `£`.
 
@@ -36,7 +51,7 @@ Prefix with `£`.
 [msg]=£hello world:1([msg])
 ```
 
-### 4) Arithmetic
+### 5) Arithmetic
 
 Use `| ... |` (or `{ ... }`) for arithmetic expressions.
 
@@ -56,7 +71,7 @@ That directly returns:
 7
 ```
 
-### 5) Printing
+### 6) Printing
 
 `1(...)` prints values.
 
@@ -64,13 +79,18 @@ That directly returns:
 [a]=^3^:[b]=^4^:1(|`a+`b|)
 ```
 
-### 6) Control blocks
+### 7) Control blocks
 
 - `2(condition){...}` for conditional execution
 - `3(condition){...}` for while loops
 - `4(start,end){...}` for range loops
 
-### 7) Comments
+Range loops accept plain integer bounds too:
+
+```text
+4(0,5){1(£hi):1(£again)}
+```
+### 8) Comments
 
 - `% ...` for single-line comments
 - `%% ... %` for block comments

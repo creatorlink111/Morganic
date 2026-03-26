@@ -24,6 +24,31 @@ TYPE_ALIASES = {
     'list': 'l',
     '£': '£',
 }
+for bits in (2, 4, 8, 16, 32, 64, 128, 256, 512):
+    TYPE_ALIASES[f'i{bits}'] = f'i{bits}'
+
+
+def is_integer_type(type_code: str | None) -> bool:
+    return bool(type_code) and bool(re.fullmatch(r"i(?:2|4|8|16|32|64|128|256|512)?", type_code))
+
+
+def integer_bounds(type_code: str) -> tuple[int, int] | None:
+    if type_code == 'i':
+        return None
+    m = re.fullmatch(r"i(2|4|8|16|32|64|128|256|512)", type_code)
+    if not m:
+        return None
+    bits = int(m.group(1))
+    return -(2 ** (bits - 1)), (2 ** (bits - 1)) - 1
+
+
+def validate_integer_range(value: int, type_code: str) -> None:
+    bounds = integer_bounds(type_code)
+    if bounds is None:
+        return
+    low, high = bounds
+    if not (low <= value <= high):
+        raise MorganicError(f"Integer overflow for {type_code}: {value} out of range [{low}, {high}].")
 
 
 def is_numeric_literal(expr: str) -> bool:
@@ -53,10 +78,19 @@ def infer_type_code(value: Any) -> str:
 def store_value(state: MorganicState, name: str, value: Any, type_code: str | None = None) -> None:
     resolved_type = type_code or infer_type_code(value)
     existing_type = state.types.get(name)
+    if existing_type and is_integer_type(existing_type) and isinstance(value, int) and not isinstance(value, bool):
+        if not is_integer_type(resolved_type):
+            resolved_type = existing_type
+        if resolved_type == 'i':
+            resolved_type = existing_type
+        validate_integer_range(value, existing_type)
+        resolved_type = existing_type
     if existing_type is not None and existing_type != resolved_type:
         raise MorganicError(
             f"Type safety violation: variable '{name}' is {existing_type}, cannot assign {resolved_type}."
         )
+    if is_integer_type(resolved_type) and isinstance(value, int) and not isinstance(value, bool):
+        validate_integer_range(value, resolved_type)
     state.env[name] = value
     state.types[name] = resolved_type
 
@@ -71,6 +105,20 @@ def parse_bool_token(token: str) -> bool:
 
 def parse_value_expr(expr: str, state: MorganicState) -> tuple[Any, str | None]:
     expr = expr.strip()
+
+    m = re.fullmatch(r"b([/\\])", expr)
+    if m:
+        return parse_bool_token(m.group(1)), 'b'
+
+    m = re.fullmatch(r"(i(?:2|4|8|16|32|64|128|256|512)?)\^(.+)\^", expr, re.DOTALL)
+    if m:
+        target_type = m.group(1)
+        literal = m.group(2).strip()
+        if not re.fullmatch(r"[+-]?\d+", literal):
+            raise MorganicError(f"{target_type} requires an integer literal inside ^ ^.")
+        value = int(literal)
+        validate_integer_range(value, target_type)
+        return value, target_type
 
     m = re.fullmatch(r"\^(.+)\^", expr, re.DOTALL)
     if m:
@@ -132,14 +180,22 @@ def convert_value(value: Any, src_type: str, target_type: str) -> tuple[Any, str
     if target_type == src_type:
         return value, src_type
 
-    if target_type == 'i':
+    if is_integer_type(target_type):
         if src_type == 'f':
             if int(value) != value:
                 raise MorganicError("Cannot convert non-whole float to integer.")
-            return int(value), 'i'
+            out = int(value)
+            validate_integer_range(out, target_type)
+            return out, target_type
         if src_type == '£' and re.fullmatch(r"[+-]?\d+", value):
-            return int(value), 'i'
-        raise MorganicError(f"Incompatible conversion: {src_type} -> i")
+            out = int(value)
+            validate_integer_range(out, target_type)
+            return out, target_type
+        if is_integer_type(src_type):
+            out = int(value)
+            validate_integer_range(out, target_type)
+            return out, target_type
+        raise MorganicError(f"Incompatible conversion: {src_type} -> {target_type}")
 
     if target_type == 'f':
         if src_type == 'i':
@@ -164,7 +220,11 @@ def convert_value(value: Any, src_type: str, target_type: str) -> tuple[Any, str
 
 
 def parse_loop_range_operand(expr: str, state: MorganicState) -> int:
-    value, _ = parse_value_expr(expr, state)
+    raw = expr.strip()
+    if re.fullmatch(r"[+-]?\d+", raw):
+        value = int(raw)
+    else:
+        value, _ = parse_value_expr(raw, state)
     if not isinstance(value, int) or isinstance(value, bool):
         raise MorganicError("For loop range bounds must be integers.")
     return value
@@ -217,7 +277,10 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
                         value, actual_type = parse_value_expr(arg, state)
                         if actual_type is None:
                             actual_type = infer_type_code(value)
-                        if pt in {'i', 'f'} and not re.fullmatch(r"\^.+\^", arg, re.DOTALL):
+                        if (pt == 'f' or is_integer_type(pt)) and not (
+                            re.fullmatch(r"\^.+\^", arg, re.DOTALL)
+                            or re.fullmatch(r"i(?:2|4|8|16|32|64|128|256|512)?\^.+\^", arg, re.DOTALL)
+                        ):
                             raise MorganicError(
                                 f"Numeric argument for '{pn}' must use ^ ^ (example: ^3^)."
                             )
@@ -339,7 +402,7 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
         name = m.group(1)
         raw_target = m.group(2).lower()
         target_type = TYPE_ALIASES.get(raw_target, m.group(2))
-        if target_type not in {'i', 'f', 'b', '£'}:
+        if target_type not in {'f', 'b', '£'} and not is_integer_type(target_type):
             raise MorganicError(f"Unsupported conversion target: {m.group(2)}")
         value = get_var(state, name)
         src_type = state.types.get(name, infer_type_code(value))
