@@ -150,6 +150,66 @@ def store_value(state: MorganicState, name: str, value: Any, type_code: str | No
     state.types[name] = resolved_type
 
 
+def parse_function_signature(raw_decl: str) -> tuple[str, list[tuple[str, str]], str]:
+    """Parse Morganic function-style declaration and return (name, params, body)."""
+    m = re.fullmatch(r"#(\w+)((?:'[\w£]+\.[\w£]+')*)#\{(.*)\}", raw_decl, re.DOTALL)
+    if not m:
+        raise MorganicError("Invalid method declaration syntax.")
+    name = m.group(1)
+    params_str = m.group(2)
+    body = m.group(3)
+    raw_params = re.findall(r"'([\w£]+)\.([\w£]+)'", params_str)
+    params = []
+    for left, right in raw_params:
+        left_type = TYPE_ALIASES.get(left.lower(), left if left == '£' else None)
+        right_type = TYPE_ALIASES.get(right.lower(), right if right == '£' else None)
+
+        if left_type and right_type and len(left) > 1 and len(right) == 1:
+            params.append((right, left_type))
+            continue
+        if right_type:
+            params.append((left, right_type))
+            continue
+        if left_type:
+            params.append((right, left_type))
+            continue
+        raise MorganicError(f"Bad parameter declaration: '{left}.{right}'")
+    return name, params, body.strip()
+
+
+def build_instance(state: MorganicState, class_name: str, raw_ctor: str) -> tuple[dict[str, Any], str]:
+    """Instantiate class by applying default fields and constructor overrides."""
+    class_def = state.classes.get(class_name)
+    if class_def is None:
+        raise MorganicError(f"Undefined class: {class_name}")
+    instance = {'__class__': class_name}
+    field_types = {}
+    for field_name, (field_value, field_type) in class_def['fields'].items():
+        instance[field_name] = field_value
+        if field_type is not None:
+            field_types[field_name] = field_type
+
+    payload = raw_ctor.strip()
+    if payload:
+        for token in split_top_level_csv(payload):
+            m = re.fullmatch(r"(\w+)\s*(?:=|:)\s*(.+)", token, re.DOTALL)
+            if not m:
+                raise MorganicError(f"Bad constructor field assignment: {token}")
+            field_name = m.group(1)
+            expr = m.group(2)
+            value, value_type = parse_value_expr(expr, state)
+            expected = field_types.get(field_name)
+            if expected is not None and value_type != expected:
+                raise MorganicError(
+                    f"Type safety violation: constructor field '{field_name}' expects {expected}, got {value_type}."
+                )
+            instance[field_name] = value
+            if value_type is not None:
+                field_types[field_name] = value_type
+
+    return instance, f'.{class_name}.'
+
+
 def parse_bool_token(token: str) -> bool:
     """Parse Morganic boolean token into Python bool."""
     if token == '/':
@@ -207,6 +267,14 @@ def parse_value_expr(expr: str, state: MorganicState) -> tuple[Any, str | None]:
     if m:
         name = m.group(1)
         return get_var(state, name), state.types.get(name)
+
+    m = re.fullmatch(r"\*([A-Za-z_][A-Za-z0-9_]*)\{(.*)\}", expr, re.DOTALL)
+    if m:
+        return build_instance(state, m.group(1), m.group(2))
+
+    m = re.fullmatch(r"\.([A-Za-z_][A-Za-z0-9_]*)\.(.*)", expr, re.DOTALL)
+    if m:
+        return build_instance(state, m.group(1), m.group(2))
 
     m = re.fullmatch(r"l\(([A-Za-z£][A-Za-z0-9£]*)\)<(.*)>", expr, re.DOTALL)
     if m:
@@ -334,28 +402,41 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
     if not stmt:
         return
 
+    m = re.fullmatch(r"\*([A-Za-z_][A-Za-z0-9_]*)\{(.*)\}", stmt, re.DOTALL)
+    if m:
+        class_name = m.group(1)
+        body = m.group(2).strip()
+        fields: dict[str, tuple[Any, str | None]] = {}
+        methods: dict[str, Any] = {}
+        if body:
+            local_state = MorganicState(
+                env=dict(state.env),
+                types=dict(state.types),
+                functions=dict(state.functions),
+                classes=dict(state.classes),
+            )
+            for part in split_statements(body):
+                item = part.strip()
+                if not item:
+                    continue
+                if item.startswith('#'):
+                    method_name, method_params, method_body = parse_function_signature(item)
+                    methods[method_name] = {'params': method_params, 'body': method_body}
+                    continue
+                assign = re.fullmatch(r"\[(\w+)\]=(.*)", item, re.DOTALL)
+                if not assign:
+                    raise MorganicError("Class body only supports field assignments and #method declarations.")
+                field_name = assign.group(1)
+                field_expr = assign.group(2).strip()
+                value, value_type = parse_value_expr(field_expr, local_state)
+                fields[field_name] = (value, value_type)
+                store_value(local_state, field_name, value, value_type)
+        state.classes[class_name] = {'fields': fields, 'methods': methods}
+        return
+
     m = re.fullmatch(r"#(\w+)((?:'[\w£]+\.[\w£]+')*)#\{(.*)\}", stmt, re.DOTALL)
     if m:
-        name = m.group(1)
-        params_str = m.group(2)
-        body = m.group(3)
-        raw_params = re.findall(r"'([\w£]+)\.([\w£]+)'", params_str)
-        params = []
-        for left, right in raw_params:
-            left_type = TYPE_ALIASES.get(left.lower(), left if left == '£' else None)
-            right_type = TYPE_ALIASES.get(right.lower(), right if right == '£' else None)
-
-            if left_type and right_type and len(left) > 1 and len(right) == 1:
-                params.append((right, left_type))
-                continue
-            if right_type:
-                params.append((left, right_type))
-                continue
-            if left_type:
-                params.append((right, left_type))
-                continue
-
-            raise MorganicError(f"Bad parameter declaration: '{left}.{right}'")
+        name, params, body = parse_function_signature(stmt)
         state.functions[name] = {'params': params, 'body': body.strip()}
         return
 

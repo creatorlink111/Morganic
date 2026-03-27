@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 
@@ -70,6 +71,13 @@ def split_statement_chunks(source: str) -> list[StatementChunk]:
                     break
             buf.append(ch)
         elif ch == ':' and all(d == 0 for d in depth.values()):
+            current = ''.join(buf)
+            ctor_match = re.search(r"\[[A-Za-z_][A-Za-z0-9_]*\]\s*=\s*\.[A-Za-z_][A-Za-z0-9_]*\.(.*)$", current)
+            if ctor_match:
+                tail = ctor_match.group(1).split(',')[-1].strip()
+                if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", tail):
+                    buf.append(ch)
+                    continue
             part = ''.join(buf).strip()
             if part:
                 out.append(StatementChunk(part, current_stmt_line))

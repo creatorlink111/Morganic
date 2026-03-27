@@ -56,3 +56,28 @@ def test_file_write_statement_writes_content(tmp_path: Path) -> None:
     out_file = tmp_path / "result.txt"
     execute_program(f"[!{out_file}!/w](£hello world)", state)
     assert out_file.read_text(encoding="utf-8") == "hello world"
+
+
+def test_class_definition_supports_fields_and_methods() -> None:
+    state = MorganicState()
+    execute_program("*Point{[x]=^1^:[y]=^2^:#sum'a.i'#{1(&a)}}", state)
+    assert "Point" in state.classes
+    assert state.classes["Point"]["fields"]["x"] == (1, "i")
+    assert state.classes["Point"]["methods"]["sum"]["params"] == [("a", "i")]
+
+
+def test_constructor_expression_creates_typed_instance_with_overrides() -> None:
+    state = MorganicState()
+    execute_program("*Point{[x]=^1^:[y]=^2^}:[p]=*Point{x=^5^}", state)
+    assert state.types["p"] == ".Point."
+    assert state.env["p"]["__class__"] == "Point"
+    assert state.env["p"]["x"] == 5
+    assert state.env["p"]["y"] == 2
+
+
+def test_constructor_period_syntax_with_colon_fields() -> None:
+    state = MorganicState()
+    execute_program("*doctor{[name]=£none:[age]=i16^0^}:[mrgreen]=.doctor.name:£morgan,age:i16^32^", state)
+    assert state.types["mrgreen"] == ".doctor."
+    assert state.env["mrgreen"]["name"] == "morgan"
+    assert state.env["mrgreen"]["age"] == 32
