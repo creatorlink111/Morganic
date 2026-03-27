@@ -81,3 +81,22 @@ def test_constructor_period_syntax_with_colon_fields() -> None:
     assert state.types["mrgreen"] == ".doctor."
     assert state.env["mrgreen"]["name"] == "morgan"
     assert state.env["mrgreen"]["age"] == 32
+
+
+def test_console_graph_statement_renders_points_and_axes(capsys: pytest.CaptureFixture[str]) -> None:
+    state = MorganicState()
+    execute_program("0(-2&2,-1&1){(-2,-1)(0,0)(2,1)}", state)
+    out = capsys.readouterr().out.strip()
+    lines = out.splitlines()
+    assert len(lines) >= 6
+    assert any("│" in line or "─" in line for line in lines)
+    assert out.count("X") == 3
+    assert any(line.lstrip().startswith("1 ") for line in lines)
+    assert any(line.startswith("   x ") for line in lines)
+
+
+def test_console_graph_rejects_points_outside_range() -> None:
+    state = MorganicState()
+    with pytest.raises(MorganicError) as exc:
+        execute_program("0(-1&1,-1&1){(2,0)}", state)
+    assert "outside graph range" in str(exc.value)

@@ -219,6 +219,118 @@ def parse_bool_token(token: str) -> bool:
     raise MorganicError(f"Expected boolean token '/' or '\\', got: {token}")
 
 
+def _parse_graph_range(raw: str, axis_name: str) -> tuple[int, int]:
+    """Parse `<min>&<max>` integer range used by console graph statements."""
+    m = re.fullmatch(r"\s*([+-]?\d+)\s*&\s*([+-]?\d+)\s*", raw)
+    if not m:
+        raise MorganicError(f"Bad {axis_name}-axis range: {raw}")
+    axis_min = int(m.group(1))
+    axis_max = int(m.group(2))
+    if axis_min >= axis_max:
+        raise MorganicError(f"{axis_name}-axis min must be less than max: {axis_min}&{axis_max}")
+    return axis_min, axis_max
+
+
+def _parse_graph_points(raw_points: str) -> list[tuple[int, int]]:
+    """Parse point payload like `(0,0)(1,4)(5,5)` into a point list."""
+    points = [
+        (int(x_raw), int(y_raw))
+        for x_raw, y_raw in re.findall(r"\(\s*([+-]?\d+)\s*,\s*([+-]?\d+)\s*\)", raw_points)
+    ]
+    if not points:
+        raise MorganicError("Graph requires at least one point like {(0,0)}.")
+    normalized = ''.join(match.group(0) for match in re.finditer(r"\(\s*[+-]?\d+\s*,\s*[+-]?\d+\s*\)", raw_points))
+    if re.sub(r"\s+", "", raw_points) != re.sub(r"\s+", "", normalized):
+        raise MorganicError("Bad graph point payload; use consecutive pairs like {(0,0)(1,4)}.")
+    return points
+
+
+def _draw_graph_line(grid: list[list[str]], x0: int, y0: int, x1: int, y1: int) -> None:
+    """Draw a line on `grid` using Bresenham integer line rasterization."""
+    dx = abs(x1 - x0)
+    dy = abs(y1 - y0)
+    sx = 1 if x0 < x1 else -1
+    sy = 1 if y0 < y1 else -1
+    err = dx - dy
+    while True:
+        if grid[y0][x0] in {' ', '│', '─', '┼'}:
+            grid[y0][x0] = '*'
+        if x0 == x1 and y0 == y1:
+            break
+        err2 = 2 * err
+        if err2 > -dy:
+            err -= dy
+            x0 += sx
+        if err2 < dx:
+            err += dx
+            y0 += sy
+
+
+def render_console_graph(
+    x_min: int,
+    x_max: int,
+    y_min: int,
+    y_max: int,
+    points: list[tuple[int, int]],
+) -> str:
+    """Render points (with connecting lines) on a labeled console grid."""
+    width = x_max - x_min + 1
+    height = y_max - y_min + 1
+    grid = [[' ' for _ in range(width)] for _ in range(height)]
+
+    def to_grid_coords(x: int, y: int) -> tuple[int, int]:
+        return x - x_min, y_max - y
+
+    if x_min <= 0 <= x_max:
+        axis_x, _ = to_grid_coords(0, 0)
+        for row in grid:
+            row[axis_x] = '│'
+    if y_min <= 0 <= y_max:
+        _, axis_y = to_grid_coords(0, 0)
+        for col in range(width):
+            grid[axis_y][col] = '─'
+    if x_min <= 0 <= x_max and y_min <= 0 <= y_max:
+        axis_x, axis_y = to_grid_coords(0, 0)
+        grid[axis_y][axis_x] = '┼'
+
+    for x, y in points:
+        if not (x_min <= x <= x_max and y_min <= y <= y_max):
+            raise MorganicError(f"Point ({x},{y}) is outside graph range x[{x_min},{x_max}] y[{y_min},{y_max}].")
+
+    mapped = [to_grid_coords(x, y) for x, y in points]
+    for (x0, y0), (x1, y1) in zip(mapped, mapped[1:]):
+        _draw_graph_line(grid, x0, y0, x1, y1)
+
+    for gx, gy in mapped:
+        grid[gy][gx] = 'X'
+
+    labeled_rows = [f"{(y_max - row_index):>4} {''.join(row)}" for row_index, row in enumerate(grid)]
+
+    tick_positions = {x_min, x_max}
+    if x_min <= 0 <= x_max:
+        tick_positions.add(0)
+    if width > 12:
+        step = max(1, width // 6)
+        tick_positions.update(range(x_min, x_max + 1, step))
+
+    tick_row = [' ' for _ in range(width)]
+    value_row = [' ' for _ in range(width)]
+    for tick_x in sorted(tick_positions):
+        if not (x_min <= tick_x <= x_max):
+            continue
+        idx = tick_x - x_min
+        tick_row[idx] = '┬'
+        label = str(tick_x)
+        start = max(0, min(width - len(label), idx - len(label) // 2))
+        for i, ch in enumerate(label):
+            value_row[start + i] = ch
+
+    labeled_rows.append("     " + ''.join(tick_row))
+    labeled_rows.append("   x " + ''.join(value_row))
+    labeled_rows.append("   y ↑")
+    return '\n'.join(labeled_rows)
+
+
 def parse_value_expr(expr: str, state: MorganicState) -> tuple[Any, str | None]:
     """Parse/resolve value expression and return `(value, type_code)`."""
     expr = expr.strip()
@@ -400,6 +512,14 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
     """Execute one top-level Morganic statement."""
     stmt = stmt.strip()
     if not stmt:
+        return
+
+    m = re.fullmatch(r"0\((.+),(.+)\)\{(.*)\}", stmt, re.DOTALL)
+    if m:
+        x_min, x_max = _parse_graph_range(m.group(1), 'x')
+        y_min, y_max = _parse_graph_range(m.group(2), 'y')
+        points = _parse_graph_points(m.group(3))
+        print(render_console_graph(x_min, x_max, y_min, y_max, points))
         return
 
     m = re.fullmatch(r"\*([A-Za-z_][A-Za-z0-9_]*)\{(.*)\}", stmt, re.DOTALL)
