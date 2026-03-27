@@ -138,8 +138,7 @@ Example:
 - X-axis range is `-10..10` in this example.
 - Y-axis range is `-20..20` in this example.
 - You can customize both ranges as needed.
-- Output includes labelled axes (`x`/`y`), row coordinate labels, and tick labels.
-- Points are shown as clear `X` markers and connected in the order provided.
+- Points are plotted in the order provided and connected with console line glyphs.
 
 #### If
 

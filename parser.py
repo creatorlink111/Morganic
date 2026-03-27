@@ -254,7 +254,7 @@ def _draw_graph_line(grid: list[list[str]], x0: int, y0: int, x1: int, y1: int) 
     err = dx - dy
     while True:
         if grid[y0][x0] in {' ', '│', '─', '┼'}:
-            grid[y0][x0] = '*'
+            grid[y0][x0] = '·'
         if x0 == x1 and y0 == y1:
             break
         err2 = 2 * err
@@ -273,7 +273,7 @@ def render_console_graph(
     y_max: int,
     points: list[tuple[int, int]],
 ) -> str:
-    """Render points (with connecting lines) on a labeled console grid."""
+    """Render points (with connecting lines) on an ASCII console grid."""
     width = x_max - x_min + 1
     height = y_max - y_min + 1
     grid = [[' ' for _ in range(width)] for _ in range(height)]
@@ -302,33 +302,9 @@ def render_console_graph(
         _draw_graph_line(grid, x0, y0, x1, y1)
 
     for gx, gy in mapped:
-        grid[gy][gx] = 'X'
+        grid[gy][gx] = '●'
 
-    labeled_rows = [f"{(y_max - row_index):>4} {''.join(row)}" for row_index, row in enumerate(grid)]
-
-    tick_positions = {x_min, x_max}
-    if x_min <= 0 <= x_max:
-        tick_positions.add(0)
-    if width > 12:
-        step = max(1, width // 6)
-        tick_positions.update(range(x_min, x_max + 1, step))
-
-    tick_row = [' ' for _ in range(width)]
-    value_row = [' ' for _ in range(width)]
-    for tick_x in sorted(tick_positions):
-        if not (x_min <= tick_x <= x_max):
-            continue
-        idx = tick_x - x_min
-        tick_row[idx] = '┬'
-        label = str(tick_x)
-        start = max(0, min(width - len(label), idx - len(label) // 2))
-        for i, ch in enumerate(label):
-            value_row[start + i] = ch
-
-    labeled_rows.append("     " + ''.join(tick_row))
-    labeled_rows.append("   x " + ''.join(value_row))
-    labeled_rows.append("   y ↑")
-    return '\n'.join(labeled_rows)
+    return '\n'.join(''.join(row).rstrip() for row in grid)
 
 
 def parse_value_expr(expr: str, state: MorganicState) -> tuple[Any, str | None]:
