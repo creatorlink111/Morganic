@@ -63,6 +63,8 @@ python -m morganic -c "[x]=^10^" --interactive
 - `b` boolean (`/` true, `\` false)
 - `£` string
 - `l(type)` typed list (`l(i4)`, `l(f)`, `l(£)`, etc.)
+- `l(c)` coordinate list (list of `(x,y)` integer pairs)
+- `m` matrix-style coordinate set from parallel x/y lists
 
 ### 3) Literals
 
@@ -71,6 +73,8 @@ python -m morganic -c "[x]=^10^" --interactive
 - String: `£hello`
 - Boolean: `b/` or `b\`
 - Typed list: `l(i4)<i4^1^,i4^2^>` or `l(£)<£a,£b>`
+- Coord list: `l(c)<(0,0),(1,1),(2,2)>`
+- Matrix coords: `m<0,1,2><0,1,2>`
 
 > Note: bare numeric tokens (like `3`) are invalid in value expressions; use `^3^`.
 
@@ -135,6 +139,13 @@ Example:
 0(-10&10,-20&20){(0,0)(1,4)(5,5)}
 ```
 
+Optional numeric axis labels:
+
+```text
+0.1(-10&10,-10&10){(0,0)(1,1)}   # label each unit
+0.2(-10&10,-10&10){(0,0)(2,2)}   # label every 2 units
+```
+
 - X-axis range is `-10..10` in this example.
 - Y-axis range is `-20..20` in this example.
 - You can customize both ranges as needed.
@@ -178,6 +189,12 @@ Example:
 ```
 
 Supported targets: integer types, `f`, `b`, `£`.
+
+Special conversion from coordinate-list to matrix coords:
+
+```text
+[data]=l(c)<(0,0),(1,1),(2,2)>:[data]£m
+```
 
 ### 8) Functions
 
