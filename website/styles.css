@@ -1,0 +1,104 @@
+:root {
+  --bg: #070a15;
+  --card: #11182c;
+  --text: #ecf2ff;
+  --muted: #a6b3d6;
+  --accent: #66f2ff;
+  --accent2: #b26dff;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: Inter, Segoe UI, Roboto, system-ui, sans-serif;
+  background: radial-gradient(ellipse at top, #121733, var(--bg));
+  color: var(--text);
+  min-height: 100vh;
+}
+
+.bg-glow {
+  position: fixed;
+  inset: -20%;
+  background:
+    radial-gradient(circle at 15% 20%, #66f2ff33 0, transparent 28%),
+    radial-gradient(circle at 80% 40%, #b26dff33 0, transparent 26%);
+  z-index: -1;
+}
+
+.hero {
+  text-align: center;
+  padding: 5rem 1.5rem 3rem;
+}
+.badge {
+  display: inline-block;
+  margin: 0;
+  border: 1px solid #ffffff33;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  color: var(--accent);
+}
+h1 { font-size: clamp(2.2rem, 8vw, 5rem); margin: 0.8rem 0 0.4rem; }
+.subtitle { color: var(--muted); max-width: 55ch; margin: 0 auto 1.4rem; }
+.cta {
+  display: inline-block;
+  text-decoration: none;
+  color: #051424;
+  background: linear-gradient(120deg, var(--accent), #90ffcf);
+  padding: 0.8rem 1.2rem;
+  border-radius: 0.8rem;
+  font-weight: 700;
+}
+
+.content {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1rem;
+  display: grid;
+  gap: 1rem;
+}
+.card {
+  background: color-mix(in oklab, var(--card) 90%, black);
+  border: 1px solid #ffffff22;
+  border-radius: 1rem;
+  padding: 1.2rem;
+  backdrop-filter: blur(4px);
+}
+.card h2 { margin-top: 0; }
+ul { margin: 0; color: var(--muted); }
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.8rem;
+}
+.stats article {
+  border: 1px solid #ffffff1a;
+  border-radius: 0.8rem;
+  padding: 0.8rem;
+  background: #ffffff05;
+}
+.stats p { margin: 0.2rem 0 0; font-size: 1.35rem; font-weight: 700; }
+.highlight {
+  border-color: #66f2ff88 !important;
+  box-shadow: 0 0 20px #66f2ff33 inset;
+}
+.note { color: var(--muted); }
+pre {
+  margin: 0.8rem 0 0;
+  background: #00000066;
+  border-radius: 0.7rem;
+  padding: 0.8rem;
+  overflow-x: auto;
+  color: #b9ffd8;
+}
+
+button {
+  background: linear-gradient(120deg, var(--accent2), #ff9be6);
+  border: 0;
+  color: white;
+  padding: 0.7rem 1rem;
+  border-radius: 0.7rem;
+  cursor: pointer;
+  font-weight: 700;
+}
+footer { text-align: center; padding: 2rem 1rem 3rem; color: var(--muted); }

@@ -1,0 +1,22 @@
+{
+  "generated_at_utc": "2026-03-27T00:00:00Z",
+  "machine_note": "Measured in the project container environment using release Rust build and module-invoked Python runtime.",
+  "workload": "[sum]=^0^:4(0,5000){[sum]=|`sum+1|}:1([sum])",
+  "iterations": 6,
+  "warmup_runs": 1,
+  "python": {
+    "mean_s": 0.9270009468333077,
+    "median_s": 0.9235716309999589,
+    "min_s": 0.8758235410000452,
+    "max_s": 0.9857290889999604,
+    "last_output": "5000"
+  },
+  "rust": {
+    "mean_s": 0.024695050499985882,
+    "median_s": 0.024570643500055667,
+    "min_s": 0.01710233599987987,
+    "max_s": 0.03256565999981831,
+    "last_output": "5000"
+  },
+  "speedup_mean": 37.53792472843243
+}
