@@ -21,25 +21,25 @@ pip install -e .[dev]
 Run REPL:
 
 ```bash
-python -m morganic --repl
+python -m Morganic --repl
 ```
 
 Run inline code:
 
 ```bash
-python -m morganic -c "[a]=^3^:[b]=^4^:1(|`a+`b|)"
+python -m Morganic -c "[a]=^3^:[b]=^4^:1(|`a+`b|)"
 ```
 
 Run source file:
 
 ```bash
-python -m morganic script.elemens
+python -m Morganic script.elemens
 ```
 
 Run and then stay interactive:
 
 ```bash
-python -m morganic -c "[x]=^10^" --interactive
+python -m Morganic -c "[x]=^10^" --interactive
 ```
 
 ---
