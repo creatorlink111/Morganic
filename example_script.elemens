@@ -30,7 +30,9 @@
 [quot]=|`a/`b|:
 [floor]=|`a//`b|:
 [mod]=|`a%`b|:
-[combo]=|(`a+2)*(`b+3)|:
+[a_plus_two]=|`a+2|:
+[b_plus_three]=|`b+3|:
+[combo]=|`a_plus_two*`b_plus_three|:
 1([sum]):
 1([diff]):
 1([prod]):
@@ -151,7 +153,8 @@
 [base]=^3^:
 [pow2]=|`base*`base|:
 [triple]=|`base*3|:
-[mix]=|(`pow2+`triple)-2|:
+[pow_plus_triple]=|`pow2+`triple|:
+[mix]=|`pow_plus_triple-2|:
 1([pow2]):
 1([triple]):
 1([mix]):
