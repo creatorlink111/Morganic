@@ -91,6 +91,7 @@ def test_console_graph_statement_renders_points_and_axes(capsys: pytest.CaptureF
     assert len(lines) == 3
     assert any("│" in line or "─" in line for line in lines)
     assert out.count("●") == 3
+    assert "·" not in out
     assert "x" in out
     assert "y" in out
 
@@ -154,3 +155,17 @@ def test_coord_list_literal_and_conversion_to_matrix() -> None:
     execute_program("[data]=l(c)<(0,0),(1,1),(2,2)>:[data]£m", state)
     assert state.types["data"] == "m"
     assert state.env["data"] == [(0, 0), (1, 1), (2, 2)]
+
+
+def test_enum_declaration_and_assignment_with_quote_syntax() -> None:
+    state = MorganicState()
+    execute_program('"direction"=north¬south¬east¬west:[mydir]="direction"north', state)
+    assert state.env["mydir"] == "north"
+    assert state.types["mydir"] == '"direction"'
+
+
+def test_enum_assignment_rejects_unknown_member() -> None:
+    state = MorganicState()
+    with pytest.raises(MorganicError) as exc:
+        execute_program('"direction"=north¬south:[mydir]="direction"west', state)
+    assert "Unknown enum member" in str(exc.value)

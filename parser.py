@@ -279,7 +279,7 @@ def _draw_graph_line(grid: list[list[str]], x0: int, y0: int, x1: int, y1: int) 
     err = dx - dy
     while True:
         if grid[y0][x0] in {' ', '│', '─', '┼'}:
-            grid[y0][x0] = '·'
+            grid[y0][x0] = ' '
         if x0 == x1 and y0 == y1:
             break
         err2 = 2 * err
@@ -331,8 +331,6 @@ def render_console_graph(
             raise MorganicError(f"Point ({x},{y}) is outside graph range x[{x_min},{x_max}] y[{y_min},{y_max}].")
 
     mapped = [to_grid_coords(x, y) for x, y in points]
-    for (x0, y0), (x1, y1) in zip(mapped, mapped[1:]):
-        _draw_graph_line(grid, x0, y0, x1, y1)
 
     for gx, gy in mapped:
         grid[gy][gx] = '●'
@@ -382,6 +380,17 @@ def render_console_graph(
 def parse_value_expr(expr: str, state: MorganicState) -> tuple[Any, str | None]:
     """Parse/resolve value expression and return `(value, type_code)`."""
     expr = expr.strip()
+
+    m = re.fullmatch(r"\"([A-Za-z_][A-Za-z0-9_]*)\"([A-Za-z_][A-Za-z0-9_]*)", expr)
+    if m:
+        enum_name = m.group(1)
+        enum_member = m.group(2)
+        members = state.enums.get(enum_name)
+        if not members:
+            raise MorganicError(f"Undefined enum: {enum_name}")
+        if enum_member not in members:
+            raise MorganicError(f"Unknown enum member '{enum_member}' for \"{enum_name}\".")
+        return enum_member, f"\"{enum_name}\""
 
     m = re.fullmatch(r"b([/\\])", expr)
     if m:
@@ -622,6 +631,7 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
                 types=dict(state.types),
                 functions=dict(state.functions),
                 classes=dict(state.classes),
+                enums=dict(state.enums),
             )
             for part in split_statements(body):
                 item = part.strip()
@@ -646,6 +656,15 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
     if m:
         name, params, body = parse_function_signature(stmt)
         state.functions[name] = {'params': params, 'body': body.strip()}
+        return
+
+    m = re.fullmatch(r"\"([A-Za-z_][A-Za-z0-9_]*)\"=([A-Za-z_][A-Za-z0-9_]*(?:¬[A-Za-z_][A-Za-z0-9_]*)*)", stmt)
+    if m:
+        enum_name = m.group(1)
+        raw_members = m.group(2).split('¬')
+        if len(set(raw_members)) != len(raw_members):
+            raise MorganicError(f"Enum \"{enum_name}\" has duplicate members.")
+        state.enums[enum_name] = set(raw_members)
         return
 
     if stmt.startswith('#'):
