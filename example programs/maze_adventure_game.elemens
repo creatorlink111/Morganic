@@ -1,0 +1,14 @@
+1(£=== Maze Adventure CLI Game ===):
+1(£Choose left or right to survive the maze):
+[score]=^0^:
+[c1]=;(£Room 1 (left/right): ):
+2([c1]..£left){[score]=|`score+1|:1(£Safe path found)}:
+2([c1]..£right){1(£You triggered a trap)}:
+[c2]=;(£Room 2 (jump/crawl): ):
+2([c2]..£crawl){[score]=|`score+1|:1(£You dodged darts)}:
+2([c2]..£jump){1(£Ceiling spikes hit)}:
+[c3]=;(£Final door (ruby/obsidian): ):
+2([c3]..£obsidian){[score]=|`score+1|:1(£Treasure room discovered)}:
+1(£Final score):
+1([score]):
+2([score]..^3^){1(£Perfect run!)}:

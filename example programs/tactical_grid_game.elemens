@@ -1,0 +1,8 @@
+1(£=== Tactical Grid Game Demo ===):
+[playerPath]=l(c)<(-4,-4),(-3,-3),(-2,-2),(-1,-1),(0,0),(1,1),(2,1),(3,2),(4,3)>:
+[enemyPath]=l(c)<(4,-4),(3,-3),(2,-2),(1,-1),(0,0),(-1,1),(-2,2),(-3,3),(-4,4)>:
+[objectives]=l(c)<(-2,3),(0,4),(2,3)>:
+0.1(-5&5,-5&5){[playerPath]}:
+0.1(-5&5,-5&5){[enemyPath]}:
+0.1(-5&5,-5&5){[objectives]}:
+1(£Use this as a base for turn-based coordinate games):

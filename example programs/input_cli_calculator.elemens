@@ -1,0 +1,14 @@
+1(£=== Input CLI Calculator ===):
+1(£Enter numbers as plain text, then choose + - * /):
+[a]=;(£First number: ):
+[b]=;(£Second number: ):
+[op]=;(£Operator (+,-,*,/): ):
+[a]$f:
+[b]$f:
+[result]=^0^:
+2([op]..£+){[result]=|`a+`b|}:
+2([op]..£-){[result]=|`a-`b|}:
+2([op]..£*){[result]=|`a*`b|}:
+2([op]..£/){[result]=|`a/`b|}:
+1(£Result):
+1([result]):

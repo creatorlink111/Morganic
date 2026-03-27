@@ -1,0 +1,18 @@
+1(£=== Space Battle Simulator ===):
+[playerHp]=i16^120^:
+[enemyHp]=i16^160^:
+[turn]=^0^:
+4(0,6){
+  [turn]=|`turn+1|:
+  [laser]=|`turn*9|:
+  [enemyHp]=|`enemyHp-`laser|:
+  1(£Turn):
+  1([turn]):
+  1(£Laser damage):
+  1([laser]):
+  1(£Enemy HP):
+  1([enemyHp])
+}:
+2([enemyHp]..^0^){1(£Enemy fleet defeated)}:
+2([enemyHp]..^160^){1(£No damage dealt)}:
+1(£Battle simulation complete):
