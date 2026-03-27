@@ -6,11 +6,11 @@ Morganic is a compact, quirky, statement-oriented toy language with symbolic syn
 Just download ts or clone it or smth idk
 ## Requirements
 
-- Python **3.10+**
+- Python **3.10+** or Rust Compiler if using Rust version
 - Optional: `prompt_toolkit` for richer REPL highlighting
 
 ## Setup
-
+For main python setup:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
