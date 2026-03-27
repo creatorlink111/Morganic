@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from morganic.errors import MorganicError
@@ -40,3 +42,17 @@ def test_type_query_expression_returns_canonical_name() -> None:
     execute_program("[v]=b/:[t]=\"[v]", state)
     assert state.env["t"] == "Boolean"
     assert state.types["t"] == "£"
+
+
+def test_print_list_index_expression(capsys: pytest.CaptureFixture[str]) -> None:
+    state = MorganicState()
+    execute_program("[items]=l(i)<i^10^,i^20^,i^30^>:1([items]@2)", state)
+    out = capsys.readouterr().out.strip()
+    assert out == "30"
+
+
+def test_file_write_statement_writes_content(tmp_path: Path) -> None:
+    state = MorganicState()
+    out_file = tmp_path / "result.txt"
+    execute_program(f"[!{out_file}!/w](£hello world)", state)
+    assert out_file.read_text(encoding="utf-8") == "hello world"
