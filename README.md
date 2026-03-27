@@ -131,12 +131,15 @@ Syntax:
 
 ```text
 0(xMin&xMax,yMin&yMax){(x1,y1)(x2,y2)...}
+0{xOrPairPayload}
 ```
 
 Example:
 
 ```text
 0(-10&10,-20&20){(0,0)(1,4)(5,5)}
+[pairs]=m<0,1,5><0,4,5>:0(-10&10,-20&20){[pairs]}
+[coords]=l(c)<(0,0),(1,4),(5,5)>:0{[coords]}
 ```
 
 Optional numeric axis labels:
@@ -148,7 +151,8 @@ Optional numeric axis labels:
 
 - X-axis range is `-10..10` in this example.
 - Y-axis range is `-20..20` in this example.
-- You can customize both ranges as needed.
+- You can customize both ranges as needed, or omit them to default to `-10..10` for both axes.
+- Graph payload may be explicit pairs, or an expression that evaluates to `m` / `l(c)`.
 - Points are plotted in the order provided and connected with console line glyphs.
 
 #### If

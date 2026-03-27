@@ -235,18 +235,39 @@ def _parse_graph_range(raw: str, axis_name: str) -> tuple[int, int]:
     return axis_min, axis_max
 
 
-def _parse_graph_points(raw_points: str) -> list[tuple[int, int]]:
-    """Parse point payload like `(0,0)(1,4)(5,5)` into a point list."""
-    points = [
+def _coerce_graph_points(value: Any) -> list[tuple[int, int]]:
+    """Validate/coerce a matrix or coord-list value into graph points."""
+    if not isinstance(value, list):
+        raise MorganicError("Graph points must be pairs, l(c), or m.")
+    points: list[tuple[int, int]] = []
+    for item in value:
+        if not isinstance(item, tuple) or len(item) != 2:
+            raise MorganicError("Graph points must be 2D coordinate pairs.")
+        x, y = item
+        if not isinstance(x, int) or isinstance(x, bool) or not isinstance(y, int) or isinstance(y, bool):
+            raise MorganicError("Graph coordinates must be integer pairs.")
+        points.append((x, y))
+    if not points:
+        raise MorganicError("Graph requires at least one point like {(0,0)}.")
+    return points
+
+
+def _parse_graph_points(raw_points: str, state: MorganicState) -> list[tuple[int, int]]:
+    """Parse graph payload from pair literals or matrix/coord-list expressions."""
+    literal_points = [
         (int(x_raw), int(y_raw))
         for x_raw, y_raw in re.findall(r"\(\s*([+-]?\d+)\s*,\s*([+-]?\d+)\s*\)", raw_points)
     ]
-    if not points:
-        raise MorganicError("Graph requires at least one point like {(0,0)}.")
     normalized = ''.join(match.group(0) for match in re.finditer(r"\(\s*[+-]?\d+\s*,\s*[+-]?\d+\s*\)", raw_points))
-    if re.sub(r"\s+", "", raw_points) != re.sub(r"\s+", "", normalized):
+    if literal_points and re.sub(r"\s+", "", raw_points) == re.sub(r"\s+", "", normalized):
+        return literal_points
+    if literal_points:
         raise MorganicError("Bad graph point payload; use consecutive pairs like {(0,0)(1,4)}.")
-    return points
+
+    value, value_type = parse_value_expr(raw_points.strip(), state)
+    if value_type not in {'l(c)', 'm'}:
+        raise MorganicError("Graph payload expression must evaluate to l(c) or m.")
+    return _coerce_graph_points(value)
 
 
 def _draw_graph_line(grid: list[list[str]], x0: int, y0: int, x1: int, y1: int) -> None:
@@ -571,11 +592,15 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
     if not stmt:
         return
 
-    m = re.fullmatch(r"0(?:\.(\d+))?\((.+),(.+)\)\{(.*)\}", stmt, re.DOTALL)
+    m = re.fullmatch(r"0(?:\.(\d+))?(?:\(([^,]+),([^)]+)\))?\{(.*)\}", stmt, re.DOTALL)
     if m:
-        x_min, x_max = _parse_graph_range(m.group(2), 'x')
-        y_min, y_max = _parse_graph_range(m.group(3), 'y')
-        points = _parse_graph_points(m.group(4))
+        if m.group(2) is None or m.group(3) is None:
+            x_min, x_max = -10, 10
+            y_min, y_max = -10, 10
+        else:
+            x_min, x_max = _parse_graph_range(m.group(2), 'x')
+            y_min, y_max = _parse_graph_range(m.group(3), 'y')
+        points = _parse_graph_points(m.group(4), state)
         label_mode = m.group(1)
         interval = None
         if label_mode:
