@@ -1,6 +1,6 @@
-# Morganic Rust (Experimental)
+# Morganic Rust (No longer experimental)
 
-This folder contains an **experimental Rust rewrite** of the Morganic interpreter.
+This folder contains an **stable Rust rewrite** of the Morganic interpreter.
 It is intentionally isolated from the main Python implementation so the existing Python runtime is not disrupted.
 
 ## Run
