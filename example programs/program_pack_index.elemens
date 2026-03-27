@@ -1,0 +1,11 @@
+1(£=== Example Programs Pack ===):
+1(£Included scripts):
+1(£input_cli_calculator.elemens):
+1(£graphing_quadratic.elemens):
+1(£graphing_wave_showcase.elemens):
+1(£space_battle_sim.elemens):
+1(£maze_adventure_game.elemens):
+1(£cli_unit_converter.elemens):
+1(£scoreboard_manager.elemens):
+1(£tactical_grid_game.elemens):
+1(£Run any file with: python -m Morganic "example programs/<name>.elemens"):

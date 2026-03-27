@@ -1,0 +1,15 @@
+1(£=== CLI Unit Converter ===):
+[value]=;(£Enter numeric value: ):
+[from]=;(£From unit (cm/m/km): ):
+[to]=;(£To unit (cm/m/km): ):
+[value]$f:
+[inMeters]=^0^:
+2([from]..£cm){[inMeters]=|`value/100|}:
+2([from]..£m){[inMeters]=`value}:
+2([from]..£km){[inMeters]=|`value*1000|}:
+[out]=^0^:
+2([to]..£cm){[out]=|`inMeters*100|}:
+2([to]..£m){[out]=`inMeters}:
+2([to]..£km){[out]=|`inMeters/1000|}:
+1(£Converted value):
+1([out]):

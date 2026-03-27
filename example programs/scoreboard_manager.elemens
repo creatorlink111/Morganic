@@ -1,0 +1,11 @@
+1(£=== Scoreboard Manager ===):
+[players]=l(£)<£Ava,£Ben,£Cora,£Dex>:
+[scores]=l(i)<i^12^,i^9^,i^15^,i^7^>:
+1(£Players):
+4(p,_[players]){1(&p)}:
+1(£Scores):
+4(s,_[scores]){1(&s)}:
+[sum]=^43^:
+1(£Team total score):
+1([sum]):
+2([sum]..^43^){1(£Score tally validated)}:
