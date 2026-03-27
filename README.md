@@ -3,15 +3,20 @@
 Morganic is a compact, quirky, statement-oriented toy language with symbolic syntax and `:` as its top-level statement separator, and scripting with `.elemens` script extension.
 
 ## Installation
-Just download ts or clone it or smth idk
+Clone this repository and pick the runtime you want:
+
+- `python/` → primary Python interpreter
+- `rust/` → experimental Rust port
+
 ## Requirements
 
-- Python **3.10+** or Rust Compiler if using Rust version
-- Optional: `prompt_toolkit` for richer REPL highlighting
+- Python **3.10+** for the Python runtime
+- Rust toolchain (`cargo`) for the Rust runtime
+- Optional (Python): `prompt_toolkit` for richer REPL highlighting
 
-## Setup
-For main python setup:
+## Python setup (`python/`)
 ```bash
+cd python
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .
@@ -21,25 +26,36 @@ pip install -e .[dev]
 Run REPL:
 
 ```bash
-python -m Morganic --repl
+cd python
+python -m morganic --repl
 ```
 
 Run inline code:
 
 ```bash
-python -m Morganic -c "[a]=^3^:[b]=^4^:1(|`a+`b|)"
+cd python
+python -m morganic -c "[a]=^3^:[b]=^4^:1(|`a+`b|)"
 ```
 
 Run source file:
 
 ```bash
-python -m Morganic script.elemens
+cd python
+python -m morganic ../example_script.elemens
 ```
 
 Run and then stay interactive:
 
 ```bash
-python -m Morganic -c "[x]=^10^" --interactive
+cd python
+python -m morganic -c "[x]=^10^" --interactive
+```
+
+## Rust setup (`rust/`)
+```bash
+cd rust
+cargo run -- -c "[a]=^3^:[b]=^4^:1(|`a+`b|)"
+cargo test
 ```
 
 ---
