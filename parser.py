@@ -308,6 +308,26 @@ def parse_loop_range_operand(expr: str, state: MorganicState) -> int:
     return value
 
 
+def parse_list_index(list_name: str, index_expr: str, state: MorganicState) -> Any:
+    """Read one element from a list variable by integer index expression."""
+    seq = get_var(state, list_name)
+    if not isinstance(seq, list):
+        raise MorganicError(f"Indexing requires a list variable, got: {list_name}")
+
+    raw_index = index_expr.strip()
+    if re.fullmatch(r"[+-]?\d+", raw_index):
+        index = int(raw_index)
+    else:
+        value, _ = parse_value_expr(raw_index, state)
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise MorganicError("List index must be an integer.")
+        index = value
+
+    if index < 0 or index >= len(seq):
+        raise MorganicError(f"List index out of bounds: {index} (size={len(seq)}).")
+    return seq[index]
+
+
 def execute_statement(stmt: str, state: MorganicState) -> None:
     """Execute one top-level Morganic statement."""
     stmt = stmt.strip()
@@ -506,6 +526,15 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
         state.env[name].append(value)
         return
 
+    m = re.fullmatch(r"\[!(.+)!/w\]\((.*)\)", stmt, re.DOTALL)
+    if m:
+        filename = m.group(1).strip()
+        expr = m.group(2).strip()
+        value, _ = parse_value_expr(expr, state)
+        with open(filename, 'w', encoding='utf-8') as handle:
+            handle.write(str(value))
+        return
+
     m = re.fullmatch(r"\[(\w+)\]=(.*)", stmt, re.DOTALL)
     if m:
         name = m.group(1)
@@ -517,6 +546,11 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
     m = re.fullmatch(r"1\(\[(\w+)\]\)", stmt)
     if m:
         print(get_var(state, m.group(1)))
+        return
+
+    m = re.fullmatch(r"1\(\[(\w+)\]@(.+)\)", stmt, re.DOTALL)
+    if m:
+        print(parse_list_index(m.group(1), m.group(2), state))
         return
 
     m = re.fullmatch(r"1\(\|(.+)\|\)", stmt, re.DOTALL)
