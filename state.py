@@ -14,3 +14,4 @@ class MorganicState:
     types: dict[str, str] = field(default_factory=dict)
     functions: dict[str, Any] = field(default_factory=dict)
     classes: dict[str, Any] = field(default_factory=dict)
+    enums: dict[str, set[str]] = field(default_factory=dict)

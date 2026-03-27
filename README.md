@@ -125,7 +125,7 @@ python -m morganic -c "[x]=^10^" --interactive
 
 #### Console graphing (new unique point)
 
-Use `0(...)` to render a graph directly in the terminal with axes, connected line segments, and marked points.
+Use `0(...)` to render a graph directly in the terminal with axes and marked points.
 
 Syntax:
 
@@ -153,7 +153,21 @@ Optional numeric axis labels:
 - Y-axis range is `-20..20` in this example.
 - You can customize both ranges as needed, or omit them to default to `-10..10` for both axes.
 - Graph payload may be explicit pairs, or an expression that evaluates to `m` / `l(c)`.
-- Points are plotted in the order provided and connected with console line glyphs.
+- Points are plotted as markers only (no dotted connector lines).
+
+### 6.5) Enums (quoted syntax)
+
+Define an enum using quoted type name and `¬`-separated members:
+
+```text
+"direction"=north¬south¬east¬west
+```
+
+Assign enum values by calling that quoted type like a literal constructor:
+
+```text
+[mydir]="direction"north
+```
 
 #### If
 
