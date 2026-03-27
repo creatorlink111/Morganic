@@ -16,8 +16,8 @@ def _ensure_morganic_package() -> None:
 
     spec = importlib.util.spec_from_file_location(
         "morganic",
-        ROOT / "__init__.py",
-        submodule_search_locations=[str(ROOT)],
+        ROOT / "morganic" / "__init__.py",
+        submodule_search_locations=[str(ROOT / "morganic")],
     )
     if spec is None or spec.loader is None:
         raise RuntimeError("Failed to load morganic package for tests")
