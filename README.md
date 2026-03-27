@@ -49,7 +49,7 @@ python -m morganic -c "[x]=^10^" --interactive
 ### 1) Statement model
 
 - Statements are split by top-level `:`.
-- Newlines are allowed; they do **not** end statements by themselves.
+- Newlines are allowed; they do **not** necessarily end statements by themselves.
 
 ```text
 [a]=^10^:[b]=^20^:1(|`a+`b|)
