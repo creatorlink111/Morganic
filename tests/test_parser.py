@@ -127,6 +127,28 @@ def test_matrix_coord_literal_parses_into_points() -> None:
     assert state.env["mycoords"] == [(0, 0), (1, 1), (2, 2)]
 
 
+def test_console_graph_allows_matrix_payload_expression(capsys: pytest.CaptureFixture[str]) -> None:
+    state = MorganicState()
+    execute_program("[pairs]=m<0,1,2><0,1,2>:0(-2&2,-2&2){[pairs]}", state)
+    out = capsys.readouterr().out
+    assert out.count("●") == 3
+
+
+def test_console_graph_allows_coord_list_payload_expression(capsys: pytest.CaptureFixture[str]) -> None:
+    state = MorganicState()
+    execute_program("[pairs]=l(c)<(0,0),(1,1),(2,2)>:0(-2&2,-2&2){[pairs]}", state)
+    out = capsys.readouterr().out
+    assert out.count("●") == 3
+
+
+def test_console_graph_uses_default_range_when_omitted(capsys: pytest.CaptureFixture[str]) -> None:
+    state = MorganicState()
+    execute_program("0.1{(0,0)(1,1)}", state)
+    out = capsys.readouterr().out
+    assert "-10" in out
+    assert "10" in out
+
+
 def test_coord_list_literal_and_conversion_to_matrix() -> None:
     state = MorganicState()
     execute_program("[data]=l(c)<(0,0),(1,1),(2,2)>:[data]£m", state)
