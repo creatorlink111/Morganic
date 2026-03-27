@@ -6,7 +6,7 @@ Morganic is a compact, quirky, statement-oriented toy language with symbolic syn
 Clone this repository and pick the runtime you want:
 
 - `python/` → primary Python interpreter
-- `rust/` → experimental Rust port
+- `rust/` → significantly faster Rust interpreter
 
 ## Requirements
 
