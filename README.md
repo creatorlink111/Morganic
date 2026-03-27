@@ -119,6 +119,27 @@ python -m morganic -c "[x]=^10^" --interactive
 1(|`a+`b|)
 ```
 
+#### Console graphing (new unique point)
+
+Use `0(...)` to render a graph directly in the terminal with axes, connected line segments, and marked points.
+
+Syntax:
+
+```text
+0(xMin&xMax,yMin&yMax){(x1,y1)(x2,y2)...}
+```
+
+Example:
+
+```text
+0(-10&10,-20&20){(0,0)(1,4)(5,5)}
+```
+
+- X-axis range is `-10..10` in this example.
+- Y-axis range is `-20..20` in this example.
+- You can customize both ranges as needed.
+- Points are plotted in the order provided and connected with console line glyphs.
+
 #### If
 
 ```text
