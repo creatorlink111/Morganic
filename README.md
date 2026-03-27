@@ -5,8 +5,8 @@ Morganic is a compact, quirky, statement-oriented toy language with symbolic syn
 ## Installation
 Clone this repository and pick the runtime you want:
 
-- `python/` → primary Python interpreter
-- `rust/` → significantly faster Rust interpreter
+- `python/` → primary Python interpreter (slow, but currently the primary model)
+- `rust/` → significantly faster Rust interpreter (about 30x faster)
 
 ## Requirements
 
@@ -383,10 +383,10 @@ Error: Unrecognized statement | line=2 | token='??bad' | hint=Check delimiters a
 - `errors.py` — structured language errors
 
 
-## Experimental Rust Rewrite
+## High-Speed Rust Rewrite
 
 A separate, non-disruptive Rust rewrite now lives in `rust/`.
 
 - Keeps the main Python interpreter untouched.
-- Provides an experimental Rust interpreter and tests.
+- Provides a full lower-runtime Rust interpreter and tests.
 - Run with `cd rust && cargo run -- -c "[a]=^3^:[b]=^4^:1(|`a+`b|)"`.
