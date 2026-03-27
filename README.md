@@ -172,13 +172,59 @@ Call function:
 #echo £hello
 ```
 
-### 9) Input
+### 9) Classes and constructor expressions
+
+Define a class:
+
+```text
+*Point{[x]=^1^:[y]=^2^}
+```
+
+Create an instance (star constructor form):
+
+```text
+[p]=*Point{x=^5^}
+```
+
+Create an instance (dot constructor form):
+
+```text
+[q]=.Point.x:^9^,y:^4^
+```
+
+#### Constructor logic, step-by-step
+
+When Morganic evaluates `*Class{...}` or `.Class....`, constructor processing follows this exact order:
+
+1. **Resolve class definition**
+   - The class must already exist in `state.classes` (from a prior `*Class{...}` declaration).
+2. **Seed defaults**
+   - A fresh instance map is created with `__class__` and every declared field default.
+3. **Parse payload tokens**
+   - Constructor payload is split on top-level commas only, so nested values keep their commas.
+4. **Accept `=` or `:` assignment forms**
+   - Each token may be `field=value` or `field:value`.
+5. **Evaluate each override as a normal value expression**
+   - Overrides support any valid value expression (`^...^`, typed ints, lists, arithmetic pipes, etc.).
+6. **Enforce field type safety**
+   - If a default field has a known type, override type must match exactly.
+7. **Return typed object**
+   - Resulting type code is `.<ClassName>.` (example: `.Point.`), and the value is a dict-like object.
+
+#### Constructor behavior notes
+
+- Missing override fields keep their class defaults.
+- Override order matters only when assigning the same field multiple times (last write wins).
+- Unknown fields are currently accepted and become new instance keys.
+- Type errors are reported per field, e.g. constructor expected `i16` but got `£`.
+
+### 10) Input
 
 ```text
 [name]=;(£Enter your name: )
 ```
 
-### 10) Comments
+### 11) Comments
 
 - Single line: `% comment`
 - Block: `%% comment block %`
