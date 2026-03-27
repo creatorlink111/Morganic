@@ -91,6 +91,17 @@ def test_console_graph_statement_renders_points_and_axes(capsys: pytest.CaptureF
     assert len(lines) == 3
     assert any("│" in line or "─" in line for line in lines)
     assert out.count("●") == 3
+    assert "x" in out
+    assert "y" in out
+
+
+def test_console_graph_uses_uniform_unit_scale_on_axes() -> None:
+    from morganic.parser import render_console_graph
+
+    graph = render_console_graph(-1, 1, -1, 1, [(0, 0), (1, 0), (0, 1)])
+    lines = graph.splitlines()
+    origin_row = lines[1]
+    assert origin_row.count("─") >= 2
 
 
 def test_console_graph_rejects_points_outside_range() -> None:

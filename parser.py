@@ -274,12 +274,16 @@ def render_console_graph(
     points: list[tuple[int, int]],
 ) -> str:
     """Render points (with connecting lines) on an ASCII console grid."""
-    width = x_max - x_min + 1
+    # Console glyphs are usually taller than they are wide, so use two
+    # columns per x-unit to keep one unit on each axis visually comparable.
+    x_scale = 2
+    x_label_margin = 2
+    width = (x_max - x_min) * x_scale + 1 + x_label_margin
     height = y_max - y_min + 1
     grid = [[' ' for _ in range(width)] for _ in range(height)]
 
     def to_grid_coords(x: int, y: int) -> tuple[int, int]:
-        return x - x_min, y_max - y
+        return (x - x_min) * x_scale, y_max - y
 
     if x_min <= 0 <= x_max:
         axis_x, _ = to_grid_coords(0, 0)
@@ -303,6 +307,19 @@ def render_console_graph(
 
     for gx, gy in mapped:
         grid[gy][gx] = '●'
+
+    if x_min <= 0 <= x_max:
+        axis_x, _ = to_grid_coords(0, 0)
+        y_label_row = 0
+        if grid[y_label_row][axis_x] == ' ':
+            grid[y_label_row][axis_x] = 'y'
+        elif axis_x + 1 < width and grid[y_label_row][axis_x + 1] == ' ':
+            grid[y_label_row][axis_x + 1] = 'y'
+
+    if y_min <= 0 <= y_max:
+        _, axis_y = to_grid_coords(0, 0)
+        x_label_col = width - 1
+        grid[axis_y][x_label_col] = 'x'
 
     return '\n'.join(''.join(row).rstrip() for row in grid)
 
