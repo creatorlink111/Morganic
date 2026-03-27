@@ -1,0 +1,7 @@
+[package]
+name = "morganic-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Experimental Rust rewrite of the Morganic interpreter"
+
+[dependencies]

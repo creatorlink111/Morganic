@@ -263,3 +263,12 @@ Error: Unrecognized statement | line=2 | token='??bad' | hint=Check delimiters a
 - `cli.py` — REPL and command-line entrypoint
 - `state.py` — runtime state model
 - `errors.py` — structured language errors
+
+
+## Experimental Rust Rewrite
+
+A separate, non-disruptive Rust rewrite now lives in `rust/`.
+
+- Keeps the main Python interpreter untouched.
+- Provides an experimental Rust interpreter and tests.
+- Run with `cd rust && cargo run -- -c "[a]=^3^:[b]=^4^:1(|`a+`b|)"`.
