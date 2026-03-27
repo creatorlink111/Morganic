@@ -94,6 +94,10 @@ def canonical_type_name(type_code: str | None) -> str:
         return f'Integer{type_code[1:]}'
     if type_code == '£':
         return 'String'
+    if type_code == 'm':
+        return 'MatrixCoords'
+    if type_code == 'l(c)':
+        return 'List<Coord>'
     if type_code.startswith('l(') and type_code.endswith(')'):
         inner = type_code[2:-1]
         return f"List<{canonical_type_name(inner)}>"
@@ -272,22 +276,26 @@ def render_console_graph(
     y_min: int,
     y_max: int,
     points: list[tuple[int, int]],
+    label_every_units: int | None = None,
 ) -> str:
     """Render points (with connecting lines) on an ASCII console grid."""
     # Console glyphs are usually taller than they are wide, so use two
     # columns per x-unit to keep one unit on each axis visually comparable.
     x_scale = 2
-    x_label_margin = 2
-    width = (x_max - x_min) * x_scale + 1 + x_label_margin
-    height = y_max - y_min + 1
+    left_margin = 5 if label_every_units else 0
+    bottom_margin = 2 if label_every_units else 0
+    plot_width = (x_max - x_min) * x_scale + 1
+    plot_height = y_max - y_min + 1
+    width = left_margin + plot_width
+    height = plot_height + bottom_margin
     grid = [[' ' for _ in range(width)] for _ in range(height)]
 
     def to_grid_coords(x: int, y: int) -> tuple[int, int]:
-        return (x - x_min) * x_scale, y_max - y
+        return left_margin + (x - x_min) * x_scale, y_max - y
 
     if x_min <= 0 <= x_max:
         axis_x, _ = to_grid_coords(0, 0)
-        for row in grid:
+        for row in grid[:plot_height]:
             row[axis_x] = '│'
     if y_min <= 0 <= y_max:
         _, axis_y = to_grid_coords(0, 0)
@@ -308,7 +316,7 @@ def render_console_graph(
     for gx, gy in mapped:
         grid[gy][gx] = '●'
 
-    if x_min <= 0 <= x_max:
+    if x_min <= 0 <= x_max and not label_every_units:
         axis_x, _ = to_grid_coords(0, 0)
         y_label_row = 0
         if grid[y_label_row][axis_x] == ' ':
@@ -316,10 +324,36 @@ def render_console_graph(
         elif axis_x + 1 < width and grid[y_label_row][axis_x + 1] == ' ':
             grid[y_label_row][axis_x + 1] = 'y'
 
-    if y_min <= 0 <= y_max:
+    if y_min <= 0 <= y_max and not label_every_units:
         _, axis_y = to_grid_coords(0, 0)
         x_label_col = width - 1
         grid[axis_y][x_label_col] = 'x'
+
+    if label_every_units:
+        if label_every_units <= 0:
+            raise MorganicError("Graph label interval must be positive.")
+        if y_min <= 0 <= y_max:
+            _, axis_y = to_grid_coords(0, 0)
+            x_label_row = min(plot_height, height - 1)
+            for x in range(x_min, x_max + 1):
+                if x % label_every_units != 0:
+                    continue
+                gx, _ = to_grid_coords(x, 0)
+                label = str(x)
+                start = gx - (len(label) // 2)
+                if 0 <= start and start + len(label) <= width:
+                    for idx, ch in enumerate(label):
+                        grid[x_label_row][start + idx] = ch
+        if x_min <= 0 <= x_max:
+            axis_x, _ = to_grid_coords(0, 0)
+            for y in range(y_min, y_max + 1):
+                if y % label_every_units != 0:
+                    continue
+                _, gy = to_grid_coords(0, y)
+                label = str(y).rjust(left_margin - 1)
+                for idx, ch in enumerate(label):
+                    if idx < axis_x:
+                        grid[gy][idx] = ch
 
     return '\n'.join(''.join(row).rstrip() for row in grid)
 
@@ -384,6 +418,18 @@ def parse_value_expr(expr: str, state: MorganicState) -> tuple[Any, str | None]:
     m = re.fullmatch(r"l\(([A-Za-z£][A-Za-z0-9£]*)\)<(.*)>", expr, re.DOTALL)
     if m:
         raw_inner_type = m.group(1).strip().lower()
+        if raw_inner_type == 'c':
+            inside = m.group(2).strip()
+            if not inside:
+                return [], 'l(c)'
+            raw_tokens = split_top_level_csv(inside)
+            points: list[tuple[int, int]] = []
+            for token in raw_tokens:
+                pair = re.fullmatch(r"\(\s*([+-]?\d+)\s*,\s*([+-]?\d+)\s*\)", token)
+                if not pair:
+                    raise MorganicError(f"Bad coord token in l(c): {token}")
+                points.append((int(pair.group(1)), int(pair.group(2))))
+            return points, 'l(c)'
         element_type = TYPE_ALIASES.get(raw_inner_type, m.group(1).strip())
         if element_type == 'l' or (element_type not in {'b', 'f', '£'} and not is_integer_type(element_type)):
             raise MorganicError(f"Unsupported list element type: {m.group(1)}")
@@ -400,6 +446,19 @@ def parse_value_expr(expr: str, state: MorganicState) -> tuple[Any, str | None]:
                 )
             values.append(value)
         return values, f'l({element_type})'
+
+    m = re.fullmatch(r"m<([^>]*)><([^>]*)>", expr, re.DOTALL)
+    if m:
+        x_values = [part.strip() for part in m.group(1).split(',') if part.strip()]
+        y_values = [part.strip() for part in m.group(2).split(',') if part.strip()]
+        if len(x_values) != len(y_values):
+            raise MorganicError("m<x...><y...> requires equal x and y counts.")
+        points: list[tuple[int, int]] = []
+        for x_raw, y_raw in zip(x_values, y_values):
+            if not re.fullmatch(r"[+-]?\d+", x_raw) or not re.fullmatch(r"[+-]?\d+", y_raw):
+                raise MorganicError("m coordinates must be integers.")
+            points.append((int(x_raw), int(y_raw)))
+        return points, 'm'
 
     if expr in {'/', '\\'}:
         return parse_bool_token(expr), 'b'
@@ -429,6 +488,11 @@ def convert_value(value: Any, src_type: str, target_type: str) -> tuple[Any, str
     """Convert a runtime value to a target Morganic type."""
     if target_type == src_type:
         return value, src_type
+
+    if target_type == 'm':
+        if src_type == 'l(c)':
+            return list(value), 'm'
+        raise MorganicError(f"Incompatible conversion: {src_type} -> m")
 
     if is_integer_type(target_type):
         if src_type == 'f':
@@ -507,12 +571,18 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
     if not stmt:
         return
 
-    m = re.fullmatch(r"0\((.+),(.+)\)\{(.*)\}", stmt, re.DOTALL)
+    m = re.fullmatch(r"0(?:\.(\d+))?\((.+),(.+)\)\{(.*)\}", stmt, re.DOTALL)
     if m:
-        x_min, x_max = _parse_graph_range(m.group(1), 'x')
-        y_min, y_max = _parse_graph_range(m.group(2), 'y')
-        points = _parse_graph_points(m.group(3))
-        print(render_console_graph(x_min, x_max, y_min, y_max, points))
+        x_min, x_max = _parse_graph_range(m.group(2), 'x')
+        y_min, y_max = _parse_graph_range(m.group(3), 'y')
+        points = _parse_graph_points(m.group(4))
+        label_mode = m.group(1)
+        interval = None
+        if label_mode:
+            interval = int(label_mode)
+            if interval <= 0:
+                raise MorganicError("Graph label mode must be 0.1, 0.2, ...")
+        print(render_console_graph(x_min, x_max, y_min, y_max, points, label_every_units=interval))
         return
 
     m = re.fullmatch(r"\*([A-Za-z_][A-Za-z0-9_]*)\{(.*)\}", stmt, re.DOTALL)
@@ -700,6 +770,16 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
         value = get_var(state, name)
         src_type = state.types.get(name, infer_type_code(value))
         new_value, new_type = convert_value(value, src_type, target_type)
+        state.env[name] = new_value
+        state.types[name] = new_type
+        return
+
+    m = re.fullmatch(r"\[(\w+)\]£m", stmt)
+    if m:
+        name = m.group(1)
+        value = get_var(state, name)
+        src_type = state.types.get(name, infer_type_code(value))
+        new_value, new_type = convert_value(value, src_type, 'm')
         state.env[name] = new_value
         state.types[name] = new_type
         return

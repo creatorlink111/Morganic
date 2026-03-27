@@ -109,3 +109,26 @@ def test_console_graph_rejects_points_outside_range() -> None:
     with pytest.raises(MorganicError) as exc:
         execute_program("0(-1&1,-1&1){(2,0)}", state)
     assert "outside graph range" in str(exc.value)
+
+
+def test_console_graph_label_modes_show_numeric_axis_labels(capsys: pytest.CaptureFixture[str]) -> None:
+    state = MorganicState()
+    execute_program("0.1(-2&2,-2&2){(-2,-2)(0,0)(2,2)}", state)
+    out = capsys.readouterr().out.strip()
+    assert "-2" in out
+    assert "2" in out
+    assert "0" in out
+
+
+def test_matrix_coord_literal_parses_into_points() -> None:
+    state = MorganicState()
+    execute_program("[mycoords]=m<0,1,2><0,1,2>", state)
+    assert state.types["mycoords"] == "m"
+    assert state.env["mycoords"] == [(0, 0), (1, 1), (2, 2)]
+
+
+def test_coord_list_literal_and_conversion_to_matrix() -> None:
+    state = MorganicState()
+    execute_program("[data]=l(c)<(0,0),(1,1),(2,2)>:[data]£m", state)
+    assert state.types["data"] == "m"
+    assert state.env["data"] == [(0, 0), (1, 1), (2, 2)]
