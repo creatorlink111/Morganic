@@ -22,8 +22,8 @@
         <h2>Why teams choose Morganic</h2>
         <ul>
           <li>Symbolic, compact syntax designed for readable logic in fewer tokens.</li>
-          <li>Dual runtime implementations in Python and Rust for flexibility and speed.</li>
-          <li>Built-in support for lists, loops, typed values, reusable functions, and terminal graphing.</li>
+          <li>Three runtime implementations (Python, Rust, Node.js) kept in feature sync.</li>
+          <li>Built-in support for typed lists, loops, reusable functions, enums, and terminal graphing.</li>
         </ul>
       </section>
 
@@ -35,26 +35,23 @@
             <pre>[sum]=^0^:4(0,5000){[sum]=|`sum+1|}:1([sum])</pre>
           </article>
           <article>
-            <h3>Functions</h3>
+            <h3>Functions + calls</h3>
             <pre>
-{addOne}(x){
-  [result]=|`x+1|
-}:1(`result)</pre>
+#echo'msg.£'#{1(&msg)}:
+#echo £hello from function</pre>
           </article>
           <article>
             <h3>Conditionals</h3>
             <pre>
-?(`value&gt;100){
-  :1("high")
-}*{
-  :1("ok")
-}</pre>
+[value]=^120^:
+2([value]..^120^){1(£exact match)}</pre>
           </article>
           <article>
-            <h3>Graphing</h3>
+            <h3>Lists + indexing</h3>
             <pre>
-[points]=^1,5,4,8,6^
-:5(`points)</pre>
+[nums]=l(i)<^1^,^2^,^3^>:
+[nums]~[nums]@^1^:
+1([nums])</pre>
           </article>
         </div>
       </section>
@@ -98,9 +95,9 @@
         <h2>Capabilities</h2>
         <ul>
           <li><strong>Arithmetic + expressions:</strong> compact operators for fast data transformations.</li>
-          <li><strong>Collections:</strong> lists and indexed values for practical scripting workflows.</li>
+          <li><strong>Collections:</strong> typed lists, append (`~`) and index (`@`) expressions.</li>
           <li><strong>Control flow:</strong> conditionals and loop forms to model complex behavior.</li>
-          <li><strong>Functions:</strong> reusable blocks for modular program design.</li>
+          <li><strong>Functions + enums:</strong> reusable blocks and symbolic enum members.</li>
           <li><strong>Graphing:</strong> terminal chart output for quick visual feedback.</li>
         </ul>
       </section>

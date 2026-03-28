@@ -8,4 +8,6 @@
 1(£cli_unit_converter.elemens):
 1(£scoreboard_manager.elemens):
 1(£tactical_grid_game.elemens):
-1(£Run any file with: python -m Morganic "example programs/<name>.elemens"):
+1(£Run with Python: python -m morganic "example programs/<name>.elemens"):
+1(£Run with Rust: cargo run --manifest-path rust/Cargo.toml -- "example programs/<name>.elemens"):
+1(£Run with Node: node node/src/cli.js "example programs/<name>.elemens"):
