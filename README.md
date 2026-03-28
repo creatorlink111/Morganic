@@ -5,14 +5,16 @@ Morganic is a compact, quirky, statement-oriented toy language with symbolic syn
 ## Installation
 Clone this repository and pick the runtime you want:
 
-- `python/` → primary Python interpreter (slow, but currently the primary model)
-- `rust/` → significantly faster Rust interpreter (about 30x faster)
-- `node/` → full Node.js JavaScript rewrite in a separate third runtime folder
+- `python/` → reference runtime and language baseline
+- `rust/` → production-ready Rust runtime (stable parity target with Python)
+- `node/` → production-ready Node.js runtime (stable parity target with Python)
+- `asm-x64/` → **very experimental** x64 assembly runtime prototype (not feature-complete)
 
 ## Requirements
 
 - Python **3.10+** for the Python runtime
 - Rust toolchain (`cargo`) for the Rust runtime
+- NASM + x64 Linux linker tools (only for the experimental `asm-x64/` prototype)
 - Optional (Python): `prompt_toolkit` for richer REPL highlighting
 
 ## Python setup (`python/`)
@@ -88,6 +90,15 @@ cargo test
 ```
 
 `.morgan` module files are importable from all runtimes with `@path/to/module.morgan@`.
+
+## Very experimental x64 assembly runtime (`asm-x64/`)
+
+The `asm-x64/` folder contains a **very experimental** rewrite in x64 assembly. It currently only demonstrates a tiny execution pipeline and is intentionally incomplete while the runtime architecture is explored.
+
+```bash
+cd asm-x64
+make run
+```
 
 ---
 
