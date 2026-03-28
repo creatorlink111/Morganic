@@ -111,6 +111,7 @@ cargo test
 - String: `£hello`
 - Boolean: `b/` or `b\`
 - Typed list: `l(i4)<i4^1^,i4^2^>` or `l(£)<£a,£b>`
+- Nested typed list / matrix list: `l(l(i))<l(i)<^1^>,l(i)<^2^>>`, `l(m)<m<0,1><2,3>>`
 - Coord list: `l(c)<(0,0),(1,1),(2,2)>`
 - Matrix coords: `m<0,1,2><0,1,2>`
 
@@ -174,6 +175,34 @@ Example:
 [xs]=l(i)<^1^,^2^,^3^>:
 [xs]~[xs]@^2^:
 1([xs]@^3^)    # prints 3
+```
+
+### 5.5) Pointer + byte-buffer model
+
+Pointers live in a dedicated pointer state (separate from normal `[var]` variables).
+
+- Create pointer entry: `++ptr`
+- Create explicit free pointer: `++ptr==`
+- Create pointer with byte buffer: `++buffer==[0x48 0x65 0x6C 0x6C 0x6F]`
+  - Byte tokens support `0x00..0xFF` and decimal `0..255`.
+  - A pointer created with buffer starts at address `0`.
+- Assign address: `ptr+-12` (decimal) or `ptr+-0x0C` (hex)
+- Dereference (value expression): `--ptr`
+- Pointer arithmetic:
+  - `+ptr+1` increments address by 1
+  - `+ptr-1` decrements address by 1
+- Forward shift shorthand:
+  - `-ptr>>12` moves address forward by 12 (same effect as `+ptr+12`)
+
+Example:
+
+```text
+++buffer==[0x48 0x65 0x6C 0x6C 0x6F]:
+buffer+-0:
++buffer+1:
+-buffer>>2:
+[v]=--buffer:
+1([v])     # 108 ('l')
 ```
 
 ### 6) Statements and control flow

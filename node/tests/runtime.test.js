@@ -41,3 +41,13 @@ test('graph label mode adds axis label information', async () => {
   assert.match(joined, /x labels:/);
   assert.match(joined, /y labels:/);
 });
+
+test('typed list allows matrix elements', async () => {
+  const state = await run('[mylist]=l(m)<m<0,1,2><3,1,5>,m<4,2,5><5,6,3>>');
+  assert.equal(state.variables.get('mylist').type, 'l(m)');
+});
+
+test('pointer byte buffer supports arithmetic and dereference', async () => {
+  const state = await run('++buffer==[0x48 0x65 0x6C 0x6C 0x6F]:buffer+-0:+buffer+1:-buffer>>2:[x]=--buffer');
+  assert.equal(state.variables.get('x').value, 108);
+});

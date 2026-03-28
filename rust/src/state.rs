@@ -1,6 +1,12 @@
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct PointerValue {
+    pub buffer: Vec<u8>,
+    pub address: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Int(i64),
     Float(f64),
@@ -32,4 +38,5 @@ pub struct MorganicState {
     pub env: HashMap<String, Value>,
     pub types: HashMap<String, String>,
     pub functions: HashMap<String, FunctionDef>,
+    pub pointers: HashMap<String, PointerValue>,
 }

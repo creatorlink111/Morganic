@@ -22,6 +22,8 @@ TYPE_ALIASES = {
     'string': '£',
     'l': 'l',
     'list': 'l',
+    'm': 'm',
+    'matrix': 'm',
     '£': '£',
 }
 for bits in (2, 4, 8, 16, 32, 64, 128, 256, 512):
@@ -150,6 +152,48 @@ def split_top_level_operator(raw: str, operator: str) -> tuple[str, str] | None:
         if ch == operator and all(level == 0 for level in depth.values()):
             return raw[:idx].strip(), raw[idx + 1 :].strip()
     return None
+
+
+def normalize_type_alias(raw_type: str) -> str:
+    """Normalize primitive aliases while preserving composite types."""
+    raw = raw_type.strip()
+    alias = TYPE_ALIASES.get(raw.lower())
+    return alias if alias is not None else raw
+
+
+def is_list_element_type_allowed(type_code: str) -> bool:
+    """Allow primitive, matrix, coord, and recursively-nested list element types."""
+    normalized = normalize_type_alias(type_code)
+    if normalized in {'b', 'f', '£', 'c', 'm'} or is_integer_type(normalized):
+        return True
+    if normalized.startswith('l(') and normalized.endswith(')'):
+        inner = normalized[2:-1].strip()
+        return bool(inner) and is_list_element_type_allowed(inner)
+    return False
+
+
+def parse_pointer_address(raw: str) -> int:
+    """Parse decimal/hex pointer address."""
+    token = raw.strip()
+    if re.fullmatch(r"[+-]?\d+", token):
+        return int(token)
+    if re.fullmatch(r"0x[0-9A-Fa-f]+", token):
+        return int(token, 16)
+    raise MorganicError(f"Invalid pointer address: {raw}")
+
+
+def parse_byte_literal(raw: str) -> int:
+    """Parse one byte literal from decimal or hexadecimal text."""
+    token = raw.strip()
+    if re.fullmatch(r"0x[0-9A-Fa-f]{1,2}", token):
+        value = int(token, 16)
+    elif re.fullmatch(r"\d{1,3}", token):
+        value = int(token)
+    else:
+        raise MorganicError(f"Invalid byte literal: {raw}")
+    if value < 0 or value > 255:
+        raise MorganicError(f"Byte literal out of range 0..255: {value}")
+    return value
 
 
 def store_value(state: MorganicState, name: str, value: Any, type_code: str | None = None) -> None:
@@ -400,6 +444,20 @@ def parse_value_expr(expr: str, state: MorganicState) -> tuple[Any, str | None]:
     """Parse/resolve value expression and return `(value, type_code)`."""
     expr = expr.strip()
 
+    m = re.fullmatch(r"--([A-Za-z_][A-Za-z0-9_]*)", expr)
+    if m:
+        pointer_name = m.group(1)
+        pointer = state.pointers.get(pointer_name)
+        if pointer is None:
+            raise MorganicError(f"Undefined pointer: {pointer_name}")
+        address = pointer.get('address')
+        if address is None:
+            raise MorganicError(f"Pointer '{pointer_name}' is free and cannot be dereferenced.")
+        buffer = pointer.get('buffer', [])
+        if address < 0 or address >= len(buffer):
+            raise MorganicError(f"Pointer '{pointer_name}' address {address} is out of bounds.")
+        return buffer[address], 'i8'
+
     m = re.fullmatch(r"\"([A-Za-z_][A-Za-z0-9_]*)\"([A-Za-z_][A-Za-z0-9_]*)", expr)
     if m:
         enum_name = m.group(1)
@@ -464,10 +522,12 @@ def parse_value_expr(expr: str, state: MorganicState) -> tuple[Any, str | None]:
     if m:
         return build_instance(state, m.group(1), m.group(2))
 
-    m = re.fullmatch(r"l\(([A-Za-z£][A-Za-z0-9£]*)\)<(.*)>", expr, re.DOTALL)
+    m = re.fullmatch(r"l\((.+)\)<(.*)>", expr, re.DOTALL)
     if m:
-        raw_inner_type = m.group(1).strip().lower()
-        if raw_inner_type == 'c':
+        raw_inner_type = m.group(1).strip()
+        normalized_inner = normalize_type_alias(raw_inner_type)
+        raw_inner_type_lower = raw_inner_type.lower()
+        if normalized_inner == 'c' or raw_inner_type_lower == 'coord':
             inside = m.group(2).strip()
             if not inside:
                 return [], 'l(c)'
@@ -479,9 +539,9 @@ def parse_value_expr(expr: str, state: MorganicState) -> tuple[Any, str | None]:
                     raise MorganicError(f"Bad coord token in l(c): {token}")
                 points.append((int(pair.group(1)), int(pair.group(2))))
             return points, 'l(c)'
-        element_type = TYPE_ALIASES.get(raw_inner_type, m.group(1).strip())
-        if element_type == 'l' or (element_type not in {'b', 'f', '£'} and not is_integer_type(element_type)):
-            raise MorganicError(f"Unsupported list element type: {m.group(1)}")
+        element_type = normalized_inner
+        if not is_list_element_type_allowed(element_type):
+            raise MorganicError(f"Unsupported list element type: {m.group(1).strip()}")
         inside = m.group(2).strip()
         if not inside:
             return [], f'l({element_type})'
@@ -689,6 +749,7 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
                 functions=dict(state.functions),
                 classes=dict(state.classes),
                 enums=dict(state.enums),
+                pointers=dict(state.pointers),
             )
             for part in split_statements(body):
                 item = part.strip()
@@ -899,6 +960,62 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
         if value_type != element_type:
             raise MorganicError("Type safety violation: append type does not match list type.")
         state.env[name].append(value)
+        return
+
+    m = re.fullmatch(r"\+\+([A-Za-z_][A-Za-z0-9_]*)==\[(.*)\]", stmt, re.DOTALL)
+    if m:
+        pointer_name = m.group(1)
+        body = m.group(2).strip()
+        buffer: list[int] = []
+        if body:
+            buffer = [parse_byte_literal(token) for token in body.split()]
+        state.pointers[pointer_name] = {'buffer': buffer, 'address': 0 if buffer else None}
+        return
+
+    m = re.fullmatch(r"\+\+([A-Za-z_][A-Za-z0-9_]*)==", stmt)
+    if m:
+        state.pointers[m.group(1)] = {'buffer': [], 'address': None}
+        return
+
+    m = re.fullmatch(r"\+\+([A-Za-z_][A-Za-z0-9_]*)", stmt)
+    if m:
+        state.pointers.setdefault(m.group(1), {'buffer': [], 'address': None})
+        return
+
+    m = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)\+\-(.+)", stmt, re.DOTALL)
+    if m:
+        pointer_name = m.group(1)
+        pointer = state.pointers.get(pointer_name)
+        if pointer is None:
+            raise MorganicError(f"Undefined pointer: {pointer_name}")
+        pointer['address'] = parse_pointer_address(m.group(2))
+        return
+
+    m = re.fullmatch(r"\+([A-Za-z_][A-Za-z0-9_]*)([+-])(\d+)", stmt)
+    if m:
+        pointer_name = m.group(1)
+        op = m.group(2)
+        delta = int(m.group(3))
+        pointer = state.pointers.get(pointer_name)
+        if pointer is None:
+            raise MorganicError(f"Undefined pointer: {pointer_name}")
+        address = pointer.get('address')
+        if address is None:
+            raise MorganicError(f"Pointer '{pointer_name}' is free and cannot be shifted.")
+        pointer['address'] = address + delta if op == '+' else address - delta
+        return
+
+    m = re.fullmatch(r"-([A-Za-z_][A-Za-z0-9_]*)>>(\d+)", stmt)
+    if m:
+        pointer_name = m.group(1)
+        delta = int(m.group(2))
+        pointer = state.pointers.get(pointer_name)
+        if pointer is None:
+            raise MorganicError(f"Undefined pointer: {pointer_name}")
+        address = pointer.get('address')
+        if address is None:
+            raise MorganicError(f"Pointer '{pointer_name}' is free and cannot be shifted.")
+        pointer['address'] = address + delta
         return
 
     m = re.fullmatch(r"\[!(.+)!/w\]\((.*)\)", stmt, re.DOTALL)

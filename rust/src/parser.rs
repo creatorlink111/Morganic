@@ -3,7 +3,7 @@ use std::fs;
 use crate::arithmetic::eval_arithmetic;
 use crate::errors::MorganicError;
 use crate::splitter::{split_statement_chunks, split_statements};
-use crate::state::{MorganicState, Value};
+use crate::state::{MorganicState, PointerValue, Value};
 
 fn is_integer_type(type_code: &str) -> bool {
     if type_code == "i" {
@@ -137,8 +137,74 @@ fn split_top_level_operator(raw: &str, operator: char) -> Option<(String, String
     None
 }
 
+fn canonical_primitive_type(raw: &str) -> String {
+    match raw.trim().to_lowercase().as_str() {
+        "bool" | "boolean" => "b".to_string(),
+        "int" | "integer" => "i".to_string(),
+        "float" => "f".to_string(),
+        "str" | "string" | "s" => "£".to_string(),
+        "matrix" => "m".to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn is_allowed_list_element_type(type_code: &str) -> bool {
+    let normalized = canonical_primitive_type(type_code);
+    if matches!(normalized.as_str(), "£" | "b" | "f" | "c" | "m") || is_integer_type(&normalized) {
+        return true;
+    }
+    if normalized.starts_with("l(") && normalized.ends_with(')') {
+        let inner = normalized[2..normalized.len() - 1].trim();
+        return !inner.is_empty() && is_allowed_list_element_type(inner);
+    }
+    false
+}
+
+fn parse_pointer_address(raw: &str) -> Result<i64, MorganicError> {
+    let token = raw.trim();
+    if let Ok(v) = token.parse::<i64>() {
+        return Ok(v);
+    }
+    if token.starts_with("0x") {
+        return i64::from_str_radix(&token[2..], 16)
+            .map_err(|_| MorganicError::new(format!("Invalid pointer address: {raw}")));
+    }
+    Err(MorganicError::new(format!("Invalid pointer address: {raw}")))
+}
+
+fn parse_byte_literal(raw: &str) -> Result<u8, MorganicError> {
+    let token = raw.trim();
+    if token.starts_with("0x") {
+        return u8::from_str_radix(&token[2..], 16)
+            .map_err(|_| MorganicError::new(format!("Invalid byte literal: {raw}")));
+    }
+    let value = token
+        .parse::<u16>()
+        .map_err(|_| MorganicError::new(format!("Invalid byte literal: {raw}")))?;
+    if value > 255 {
+        return Err(MorganicError::new(format!("Byte literal out of range 0..255: {value}")));
+    }
+    Ok(value as u8)
+}
+
 fn parse_value_expr(expr: &str, state: &mut MorganicState) -> Result<(Value, String), MorganicError> {
     let expr = expr.trim();
+
+    if let Some(name) = expr.strip_prefix("--") {
+        let pointer = state
+            .pointers
+            .get(name)
+            .ok_or_else(|| MorganicError::new(format!("Undefined pointer: {name}")))?;
+        let address = pointer
+            .address
+            .ok_or_else(|| MorganicError::new(format!("Pointer '{name}' is free and cannot be dereferenced.")))?;
+        if address < 0 || address as usize >= pointer.buffer.len() {
+            return Err(MorganicError::new(format!(
+                "Pointer '{name}' address {address} is out of bounds."
+            )));
+        }
+        return Ok((Value::Int(pointer.buffer[address as usize] as i64), "i8".to_string()));
+    }
 
     if let Some(token) = expr.strip_prefix('b') {
         if token == "/" || token == "\\" {
@@ -204,17 +270,33 @@ fn parse_value_expr(expr: &str, state: &mut MorganicState) -> Result<(Value, Str
         return Ok((v.clone(), t));
     }
 
+    if expr.starts_with("m<") && expr.ends_with('>') {
+        let core = &expr[2..];
+        let Some((left, right_with_gt)) = core.split_once("><") else {
+            return Err(MorganicError::new("m<x...><y...> requires two coordinate vectors."));
+        };
+        let right = right_with_gt.strip_suffix('>').unwrap_or(right_with_gt);
+        let xs: Vec<&str> = left.strip_prefix('<').unwrap_or(left).split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
+        let ys: Vec<&str> = right.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
+        if xs.len() != ys.len() {
+            return Err(MorganicError::new("m<x...><y...> requires equal x and y counts."));
+        }
+        let mut points = vec![];
+        for (x_raw, y_raw) in xs.iter().zip(ys.iter()) {
+            let x = x_raw.parse::<i64>().map_err(|_| MorganicError::new("m coordinates must be integers."))?;
+            let y = y_raw.parse::<i64>().map_err(|_| MorganicError::new("m coordinates must be integers."))?;
+            points.push(Value::List(vec![Value::Int(x), Value::Int(y)]));
+        }
+        return Ok((Value::List(points), "m".to_string()));
+    }
+
     if expr.starts_with("l(") && expr.contains(")<") && expr.ends_with('>') {
         let close = expr.find(")<").expect("checked contains");
-        let inner = &expr[2..close];
-        let element = match inner.to_lowercase().as_str() {
-            "b" | "bool" | "boolean" => "b".to_string(),
-            "i" | "int" | "integer" => "i".to_string(),
-            "f" | "float" => "f".to_string(),
-            "s" | "str" | "string" | "£" => "£".to_string(),
-            x if is_integer_type(x) => x.to_string(),
-            _ => return Err(MorganicError::new(format!("Unsupported list element type: {inner}"))),
-        };
+        let inner = expr[2..close].trim();
+        let element = canonical_primitive_type(inner);
+        if !is_allowed_list_element_type(&element) {
+            return Err(MorganicError::new(format!("Unsupported list element type: {inner}")));
+        }
         let inside = &expr[close + 2..expr.len() - 1];
         if inside.trim().is_empty() {
             return Ok((Value::List(vec![]), format!("l({element})")));
@@ -468,6 +550,95 @@ pub fn execute_statement(stmt: &str, state: &mut MorganicState) -> Result<(), Mo
             Some(Value::List(v)) => v.push(value),
             _ => return Err(MorganicError::new("Append requires a typed list variable.")),
         }
+        return Ok(());
+    }
+
+    if stmt.starts_with("++") && stmt.contains("==[") && stmt.ends_with(']') {
+        let marker = stmt.find("==[").expect("contains checked");
+        let name = &stmt[2..marker];
+        let body = &stmt[marker + 3..stmt.len() - 1];
+        let mut buffer = vec![];
+        if !body.trim().is_empty() {
+            for token in body.split_whitespace() {
+                buffer.push(parse_byte_literal(token)?);
+            }
+        }
+        let address = if buffer.is_empty() { None } else { Some(0) };
+        state
+            .pointers
+            .insert(name.to_string(), PointerValue { buffer, address });
+        return Ok(());
+    }
+
+    if stmt.starts_with("++") && stmt.ends_with("==") {
+        let name = &stmt[2..stmt.len() - 2];
+        state.pointers.insert(
+            name.to_string(),
+            PointerValue {
+                buffer: vec![],
+                address: None,
+            },
+        );
+        return Ok(());
+    }
+
+    if stmt.starts_with("++") {
+        let name = &stmt[2..];
+        state.pointers.entry(name.to_string()).or_insert(PointerValue {
+            buffer: vec![],
+            address: None,
+        });
+        return Ok(());
+    }
+
+    if let Some(marker) = stmt.find("+-") {
+        let name = &stmt[..marker];
+        if name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            let pointer = state
+                .pointers
+                .get_mut(name)
+                .ok_or_else(|| MorganicError::new(format!("Undefined pointer: {name}")))?;
+            pointer.address = Some(parse_pointer_address(&stmt[marker + 2..])?);
+            return Ok(());
+        }
+    }
+
+    if stmt.starts_with('+') && stmt.len() > 2 {
+        let rest = &stmt[1..];
+        if let Some(op_pos) = rest[1..].find(['+', '-']) {
+            let split = op_pos + 1;
+            let name = &rest[..split];
+            let op = rest.as_bytes()[split] as char;
+            let delta_str = &rest[split + 1..];
+            if !delta_str.is_empty() && delta_str.chars().all(|c| c.is_ascii_digit()) {
+                let delta: i64 = delta_str.parse().map_err(|_| MorganicError::new("Invalid pointer delta"))?;
+                let pointer = state
+                    .pointers
+                    .get_mut(name)
+                    .ok_or_else(|| MorganicError::new(format!("Undefined pointer: {name}")))?;
+                let address = pointer
+                    .address
+                    .ok_or_else(|| MorganicError::new(format!("Pointer '{name}' is free and cannot be shifted.")))?;
+                pointer.address = Some(if op == '+' { address + delta } else { address - delta });
+                return Ok(());
+            }
+        }
+    }
+
+    if stmt.starts_with('-') && stmt.contains(">>") {
+        let marker = stmt.find(">>").expect("contains checked");
+        let name = &stmt[1..marker];
+        let delta: i64 = stmt[marker + 2..]
+            .parse()
+            .map_err(|_| MorganicError::new("Invalid pointer shift delta"))?;
+        let pointer = state
+            .pointers
+            .get_mut(name)
+            .ok_or_else(|| MorganicError::new(format!("Undefined pointer: {name}")))?;
+        let address = pointer
+            .address
+            .ok_or_else(|| MorganicError::new(format!("Pointer '{name}' is free and cannot be shifted.")))?;
+        pointer.address = Some(address + delta);
         return Ok(());
     }
 

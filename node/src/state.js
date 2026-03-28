@@ -4,6 +4,7 @@ class RuntimeState {
     this.functions = new Map();
     this.classes = new Map();
     this.enums = new Map();
+    this.pointers = new Map();
   }
 }
 
