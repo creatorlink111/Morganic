@@ -27,3 +27,14 @@ fn arithmetic_variables() {
     let result = eval_arithmetic("`a + `b * 2", &state).expect("arithmetic should evaluate");
     assert_eq!(result, Value::Int(11));
 }
+
+#[test]
+fn append_and_index_can_be_nested_inside_expression() {
+    let mut state = MorganicState::default();
+    execute_program("[mylist]=l(i)<^1^,^2^,^3^>:[mylist]~[mylist]@^2^", &mut state)
+        .expect("program should execute");
+    assert_eq!(
+        state.env.get("mylist"),
+        Some(&Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3), Value::Int(3)]))
+    );
+}

@@ -5,10 +5,12 @@
 [op]=;(£Operator (+,-,*,/): ):
 [a]$f:
 [b]$f:
-[result]=^0^:
-2([op]..£+){[result]=|`a+`b|}:
-2([op]..£-){[result]=|`a-`b|}:
-2([op]..£*){[result]=|`a*`b|}:
-2([op]..£/){[result]=|`a/`b|}:
+[result]=^0.0^:
+[handled]=\:
+2([op]..£+){[result]=|`a+`b|:[handled]=/}:
+2([op]..£-){[result]=|`a-`b|:[handled]=/}:
+2([op]..£*){[result]=|`a*`b|:[handled]=/}:
+2([op]..£/){[result]=|`a/`b|:[handled]=/}:
+2([handled]..\){1(£Unknown operator; defaulting to +):[result]=|`a+`b|}:
 1(£Result):
 1([result]):

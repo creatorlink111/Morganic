@@ -3,13 +3,17 @@
 [from]=;(£From unit (cm/m/km): ):
 [to]=;(£To unit (cm/m/km): ):
 [value]$f:
-[inMeters]=^0^:
-2([from]..£cm){[inMeters]=|`value/100|}:
-2([from]..£m){[inMeters]=`value}:
-2([from]..£km){[inMeters]=|`value*1000|}:
-[out]=^0^:
-2([to]..£cm){[out]=|`inMeters*100|}:
-2([to]..£m){[out]=`inMeters}:
-2([to]..£km){[out]=|`inMeters/1000|}:
+[inMeters]=^0.0^:
+[fromKnown]=\:
+2([from]..£cm){[inMeters]=|`value/100|:[fromKnown]=/}:
+2([from]..£m){[inMeters]=`value:[fromKnown]=/}:
+2([from]..£km){[inMeters]=|`value*1000|:[fromKnown]=/}:
+[toKnown]=\:
+[out]=^0.0^:
+2([to]..£cm){[out]=|`inMeters*100|:[toKnown]=/}:
+2([to]..£m){[out]=`inMeters:[toKnown]=/}:
+2([to]..£km){[out]=|`inMeters/1000|:[toKnown]=/}:
+2([fromKnown]..\){1(£Unknown source unit; using meters as fallback):[inMeters]=`value}:
+2([toKnown]..\){1(£Unknown target unit; keeping meters output):[out]=`inMeters}:
 1(£Converted value):
 1([out]):

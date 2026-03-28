@@ -51,6 +51,12 @@ def test_print_list_index_expression(capsys: pytest.CaptureFixture[str]) -> None
     assert out == "30"
 
 
+def test_append_and_index_can_be_nested_inside_value_expression() -> None:
+    state = MorganicState()
+    execute_program("[mylist]=l(i)<^1^,^2^,^3^>:[mylist]~[mylist]@^2^", state)
+    assert state.env["mylist"] == [1, 2, 3, 3]
+
+
 def test_file_write_statement_writes_content(tmp_path: Path) -> None:
     state = MorganicState()
     out_file = tmp_path / "result.txt"
