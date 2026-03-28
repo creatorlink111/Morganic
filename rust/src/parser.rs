@@ -111,7 +111,33 @@ fn split_top_level_csv(raw: &str) -> Vec<String> {
     tokens
 }
 
-fn parse_value_expr(expr: &str, state: &MorganicState) -> Result<(Value, String), MorganicError> {
+fn split_top_level_operator(raw: &str, operator: char) -> Option<(String, String)> {
+    let mut p = 0i32;
+    let mut b = 0i32;
+    let mut c = 0i32;
+    let mut a = 0i32;
+    for (idx, ch) in raw.char_indices() {
+        match ch {
+            '(' => p += 1,
+            ')' => p = (p - 1).max(0),
+            '[' => b += 1,
+            ']' => b = (b - 1).max(0),
+            '{' => c += 1,
+            '}' => c = (c - 1).max(0),
+            '<' => a += 1,
+            '>' => a = (a - 1).max(0),
+            _ => {}
+        }
+        if ch == operator && p == 0 && b == 0 && c == 0 && a == 0 {
+            let left = raw[..idx].trim().to_string();
+            let right = raw[idx + ch.len_utf8()..].trim().to_string();
+            return Some((left, right));
+        }
+    }
+    None
+}
+
+fn parse_value_expr(expr: &str, state: &mut MorganicState) -> Result<(Value, String), MorganicError> {
     let expr = expr.trim();
 
     if let Some(token) = expr.strip_prefix('b') {
@@ -212,6 +238,60 @@ fn parse_value_expr(expr: &str, state: &MorganicState) -> Result<(Value, String)
         return Ok((Value::Str(s.to_string()), "£".to_string()));
     }
 
+    if let Some((left_raw, right_raw)) = split_top_level_operator(expr, '~') {
+        let list_name = if left_raw.starts_with('[') && left_raw.ends_with(']') && left_raw.len() >= 2 {
+            &left_raw[1..left_raw.len() - 1]
+        } else {
+            return Err(MorganicError::new("Append expression requires a list variable target like [list]~value."));
+        };
+
+        let list_type = state
+            .types
+            .get(list_name)
+            .cloned()
+            .ok_or_else(|| MorganicError::new("Append requires a typed list variable."))?;
+        if !list_type.starts_with("l(") || !list_type.ends_with(')') {
+            return Err(MorganicError::new("Append requires a typed list variable."));
+        }
+        let element_type = list_type[2..list_type.len() - 1].to_string();
+        let (value, value_type) = parse_value_expr(&right_raw, state)?;
+        if value_type != element_type {
+            return Err(MorganicError::new("Type safety violation: append type does not match list type."));
+        }
+        match state.env.get_mut(list_name) {
+            Some(Value::List(v)) => {
+                v.push(value);
+                return Ok((Value::List(v.clone()), list_type));
+            }
+            _ => return Err(MorganicError::new("Append requires a typed list variable.")),
+        }
+    }
+
+    if let Some((left_raw, right_raw)) = split_top_level_operator(expr, '@') {
+        let (seq_value, seq_type) = parse_value_expr(&left_raw, state)?;
+        let list = if let Value::List(v) = seq_value {
+            v
+        } else {
+            return Err(MorganicError::new("Index operator '@' requires a list value."));
+        };
+        let (idx_value, _) = parse_value_expr(&right_raw, state)?;
+        let idx = if let Value::Int(i) = idx_value {
+            i
+        } else {
+            return Err(MorganicError::new("List index must be an integer."));
+        };
+        if idx < 0 || idx as usize >= list.len() {
+            return Err(MorganicError::new(format!("List index out of bounds: {idx} (size={}).", list.len())));
+        }
+        let value = list[idx as usize].clone();
+        let item_type = if seq_type.starts_with("l(") && seq_type.ends_with(')') {
+            seq_type[2..seq_type.len() - 1].to_string()
+        } else {
+            infer_type_code(&value)
+        };
+        return Ok((value, item_type));
+    }
+
     if is_numeric_literal(expr) {
         return Err(MorganicError::new("Numeric literals must be wrapped with ^ ^ (example: ^3^)."));
     }
@@ -252,7 +332,7 @@ fn store_value(state: &mut MorganicState, name: &str, value: Value, type_code: O
     Ok(())
 }
 
-fn eval_condition(expr: &str, state: &MorganicState) -> Result<bool, MorganicError> {
+fn eval_condition(expr: &str, state: &mut MorganicState) -> Result<bool, MorganicError> {
     let (left_raw, right_raw) = expr
         .split_once("..")
         .ok_or_else(|| MorganicError::new("Condition must use equality operator '..'."))?;
@@ -261,7 +341,7 @@ fn eval_condition(expr: &str, state: &MorganicState) -> Result<bool, MorganicErr
     Ok(left == right)
 }
 
-fn parse_loop_range_operand(expr: &str, state: &MorganicState) -> Result<i64, MorganicError> {
+fn parse_loop_range_operand(expr: &str, state: &mut MorganicState) -> Result<i64, MorganicError> {
     let raw = expr.trim();
     if let Ok(v) = raw.parse::<i64>() {
         return Ok(v);
@@ -273,8 +353,8 @@ fn parse_loop_range_operand(expr: &str, state: &MorganicState) -> Result<i64, Mo
     }
 }
 
-fn parse_list_index(list_name: &str, index_expr: &str, state: &MorganicState) -> Result<Value, MorganicError> {
-    let seq = get_var(state, list_name)?;
+fn parse_list_index(list_name: &str, index_expr: &str, state: &mut MorganicState) -> Result<Value, MorganicError> {
+    let seq = get_var(state, list_name)?.clone();
     let list = if let Value::List(v) = seq {
         v
     } else {

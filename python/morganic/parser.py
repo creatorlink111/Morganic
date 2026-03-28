@@ -133,6 +133,25 @@ def split_top_level_csv(raw: str) -> list[str]:
     return tokens
 
 
+def split_top_level_operator(raw: str, operator: str) -> tuple[str, str] | None:
+    """Split expression by top-level operator, ignoring nested delimiters."""
+    depth = {'(': 0, '[': 0, '{': 0, '<': 0}
+    pairs = {'(': ')', '[': ']', '{': '}', '<': '>'}
+    for idx, ch in enumerate(raw):
+        if ch in depth:
+            depth[ch] += 1
+            continue
+        if ch in pairs.values():
+            for opener, closer in pairs.items():
+                if closer == ch:
+                    depth[opener] = max(0, depth[opener] - 1)
+                    break
+            continue
+        if ch == operator and all(level == 0 for level in depth.values()):
+            return raw[:idx].strip(), raw[idx + 1 :].strip()
+    return None
+
+
 def store_value(state: MorganicState, name: str, value: Any, type_code: str | None = None) -> None:
     """Store a value in state while enforcing Morganic type safety rules."""
     resolved_type = type_code or infer_type_code(value)
@@ -495,6 +514,44 @@ def parse_value_expr(expr: str, state: MorganicState) -> tuple[Any, str | None]:
 
     if expr.startswith('£'):
         return expr[1:], '£'
+
+    split_append = split_top_level_operator(expr, '~')
+    if split_append is not None:
+        left_raw, right_raw = split_append
+        m = re.fullmatch(r"\[(\w+)\]", left_raw)
+        if not m:
+            raise MorganicError("Append expression requires a list variable target like [list]~value.")
+        name = m.group(1)
+        if name not in state.env:
+            raise MorganicError(f"Undefined: {name}")
+        list_type = state.types.get(name)
+        typed_list = re.fullmatch(r"l\((.+)\)", list_type or "")
+        if not typed_list:
+            raise MorganicError("Append requires a typed list variable.")
+        element_type = typed_list.group(1)
+        value, value_type = parse_value_expr(right_raw, state)
+        if value_type != element_type:
+            raise MorganicError("Type safety violation: append type does not match list type.")
+        state.env[name].append(value)
+        return state.env[name], list_type
+
+    split_index = split_top_level_operator(expr, '@')
+    if split_index is not None:
+        left_raw, right_raw = split_index
+        seq_value, seq_type = parse_value_expr(left_raw, state)
+        if not isinstance(seq_value, list):
+            raise MorganicError("Index operator '@' requires a list value.")
+        index_value, _ = parse_value_expr(right_raw, state)
+        if not isinstance(index_value, int) or isinstance(index_value, bool):
+            raise MorganicError("List index must be an integer expression.")
+        idx = index_value
+        if idx < 0 or idx >= len(seq_value):
+            raise MorganicError(f"List index out of range: {idx}")
+        value = seq_value[idx]
+        result_type: str | None = None
+        if seq_type and seq_type.startswith('l(') and seq_type.endswith(')'):
+            result_type = seq_type[2:-1]
+        return value, result_type or infer_type_code(value)
 
     if is_numeric_literal(expr):
         raise MorganicError(
