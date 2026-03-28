@@ -1,6 +1,6 @@
 # Morganic Language
 
-Morganic is a compact, quirky, statement-oriented toy language with symbolic syntax and `:` as its top-level statement separator, and scripting with `.elemens` script extension.
+Morganic is a compact, quirky, statement-oriented toy language with symbolic syntax and `:` as its top-level statement separator, and scripting with `.elemens` and reusable module `.morgan` extensions.
 
 ## Installation
 Clone this repository and pick the runtime you want:
@@ -45,6 +45,13 @@ cd python
 python -m morganic ../example_script.elemens
 ```
 
+Import modules in source or inline code:
+
+```text
+@my_default_vars_file.morgan@:
+[x]=|`x+1|
+```
+
 Run and then stay interactive:
 
 ```bash
@@ -79,6 +86,8 @@ cd rust
 cargo run -- -c "[a]=^3^:[b]=^4^:1(|`a+`b|)"
 cargo test
 ```
+
+`.morgan` module files are importable from all runtimes with `@path/to/module.morgan@`.
 
 ---
 

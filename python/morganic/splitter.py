@@ -19,10 +19,17 @@ def strip_comments(source: str) -> str:
     out: list[str] = []
     i = 0
     n = len(source)
+    in_arithmetic = False
     while i < n:
         ch = source[i]
 
-        if ch == '%':
+        if ch == '|':
+            in_arithmetic = not in_arithmetic
+            out.append(ch)
+            i += 1
+            continue
+
+        if ch == '%' and not in_arithmetic:
             nxt = source[i + 1] if i + 1 < n else ''
             if nxt == '%':
                 i += 2

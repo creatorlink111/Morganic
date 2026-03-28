@@ -78,6 +78,21 @@ function canonicalPrimitiveType(raw) {
   return token;
 }
 
+function canonicalTypeName(typeCode) {
+  if (!typeCode) return 'Unknown';
+  if (typeCode === 'b') return 'Boolean';
+  if (typeCode === 'f') return 'Float';
+  if (typeCode === 'i') return 'Integer';
+  if (typeCode === '£') return 'String';
+  if (/^i(?:2|4|8|16|32|64|128|256|512)$/.test(typeCode)) return `Integer${typeCode.slice(1)}`;
+  if (typeCode === 'm') return 'MatrixCoords';
+  if (typeCode === 'l(c)') return 'List<Coord>';
+  if (typeCode.startsWith('l(') && typeCode.endsWith(')')) {
+    return `List<${canonicalTypeName(typeCode.slice(2, -1))}>`;
+  }
+  return typeCode;
+}
+
 function isAllowedListElementType(typeCode) {
   const normalized = canonicalPrimitiveType(typeCode);
   if (/^(?:£|b|f|c|m|i(?:2|4|8|16|32|64|128|256|512)?)$/.test(normalized)) return true;
@@ -175,6 +190,12 @@ class Parser {
     }
 
     if (raw.startsWith('^') && raw.endsWith('^')) return Number(raw.slice(1, -1));
+    if (raw.startsWith('"[') && raw.endsWith(']')) {
+      const name = raw.slice(2, -1);
+      if (!this.state.variables.has(name)) throw new Error(`Unknown variable: ${name}`);
+      const entry = this.state.variables.get(name);
+      return canonicalTypeName(entry?.type || typeOfValue(entry?.value));
+    }
     if (/^i(?:\d+)?\^.*\^$/.test(raw)) {
       const typeCode = raw.slice(0, raw.indexOf('^'));
       if (!INTEGER_TYPE_PATTERN.test(typeCode)) {
@@ -274,6 +295,10 @@ class Parser {
     const inputStmt = s.match(/^\[([A-Za-z_]\w*)\]=;\((.*)\)$/s);
     if (inputStmt) {
       const prompt = await this.evaluateValue(inputStmt[2]);
+      if (!input.isTTY) {
+        this.setVar(inputStmt[1], '0', '£');
+        return;
+      }
       const rl = readline.createInterface({ input, output });
       const answer = await rl.question(String(prompt));
       rl.close();
@@ -409,7 +434,7 @@ class Parser {
 
     const forRange = s.match(/^4\((-?\d+),(-?\d+)\)\{(.*)\}$/s);
     if (forRange) {
-      for (let i = Number(forRange[1]); i <= Number(forRange[2]); i += 1) {
+      for (let i = Number(forRange[1]); i < Number(forRange[2]); i += 1) {
         this.setVar('i', i, 'i');
         await this.executeBlock(forRange[3]);
       }

@@ -178,6 +178,27 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
+IMPORT_PATTERN = re.compile(r"@([A-Za-z0-9_./\\-]+\.(?:morgan|elemens))@")
+
+
+def _resolve_module_imports(source: str, base_dir: Path, stack: tuple[Path, ...] = ()) -> str:
+    """Inline module imports using `@file.morgan@` / `@file.elemens@` syntax."""
+    def replace(match: re.Match[str]) -> str:
+        raw_ref = match.group(1).strip()
+        target = (base_dir / raw_ref).resolve()
+        if target.suffix not in {".morgan", ".elemens"}:
+            raise MorganicError(f"Unsupported import file type: {raw_ref}")
+        if not target.is_file():
+            raise MorganicError(f"Import file not found: {raw_ref}")
+        if target in stack:
+            chain = " -> ".join(str(p) for p in (*stack, target))
+            raise MorganicError(f"Circular module import detected: {chain}")
+        nested = target.read_text(encoding="utf-8")
+        return _resolve_module_imports(nested, target.parent, (*stack, target))
+
+    return IMPORT_PATTERN.sub(replace, source)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Main entry point for script execution and interactive mode."""
     from .parser import execute_program, try_eval_and_print_inline_expression
@@ -195,15 +216,15 @@ def main(argv: list[str] | None = None) -> int:
 
     code: str | None = None
     if args.code is not None:
-        code = args.code
+        code = _resolve_module_imports(args.code, Path.cwd())
     elif args.script is not None:
         path = Path(args.script)
         if path.is_file():
-            if path.suffix and path.suffix not in {".elemens"}:
-                print(f"Warning: running non-.elemens file '{path.name}'.")
-            code = path.read_text(encoding="utf-8")
+            if path.suffix and path.suffix not in {".elemens", ".morgan"}:
+                print(f"Warning: running non-.elemens/.morgan file '{path.name}'.")
+            code = _resolve_module_imports(path.read_text(encoding="utf-8"), path.resolve().parent)
         else:
-            code = args.script
+            code = _resolve_module_imports(args.script, Path.cwd())
 
     try:
         if code and not try_eval_and_print_inline_expression(code, state):

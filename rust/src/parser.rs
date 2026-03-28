@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::{self, Write};
 
 use crate::arithmetic::eval_arithmetic;
 use crate::errors::MorganicError;
@@ -138,12 +139,14 @@ fn split_top_level_operator(raw: &str, operator: char) -> Option<(String, String
 }
 
 fn canonical_primitive_type(raw: &str) -> String {
-    match raw.trim().to_lowercase().as_str() {
+    let normalized = raw.trim().replace("Â£", "£");
+    match normalized.to_lowercase().as_str() {
         "bool" | "boolean" => "b".to_string(),
         "int" | "integer" => "i".to_string(),
         "float" => "f".to_string(),
         "str" | "string" | "s" => "£".to_string(),
         "matrix" => "m".to_string(),
+        "£" => "£".to_string(),
         other => other.to_string(),
     }
 }
@@ -246,6 +249,13 @@ fn parse_value_expr(expr: &str, state: &mut MorganicState) -> Result<(Value, Str
         }
     }
 
+    if let Some(name) = expr.strip_prefix('&') {
+        let ref_name = format!("&{name}");
+        let v = get_var(state, &ref_name)?;
+        let t = state.types.get(&ref_name).cloned().unwrap_or_else(|| infer_type_code(v));
+        return Ok((v.clone(), t));
+    }
+
     if expr.starts_with("\"") && expr.len() > 1 {
         let rest = &expr[1..];
         if rest.starts_with('[') && rest.ends_with(']') {
@@ -290,6 +300,15 @@ fn parse_value_expr(expr: &str, state: &mut MorganicState) -> Result<(Value, Str
         return Ok((Value::List(points), "m".to_string()));
     }
 
+    if expr.starts_with('(') && expr.ends_with(')') {
+        let inside = &expr[1..expr.len() - 1];
+        if let Some((x_raw, y_raw)) = inside.split_once(',') {
+            let x = x_raw.trim().parse::<i64>().map_err(|_| MorganicError::new("Coordinate x must be an integer."))?;
+            let y = y_raw.trim().parse::<i64>().map_err(|_| MorganicError::new("Coordinate y must be an integer."))?;
+            return Ok((Value::List(vec![Value::Int(x), Value::Int(y)]), "c".to_string()));
+        }
+    }
+
     if expr.starts_with("l(") && expr.contains(")<") && expr.ends_with('>') {
         let close = expr.find(")<").expect("checked contains");
         let inner = expr[2..close].trim();
@@ -317,6 +336,10 @@ fn parse_value_expr(expr: &str, state: &mut MorganicState) -> Result<(Value, Str
     }
 
     if let Some(s) = expr.strip_prefix('£') {
+        return Ok((Value::Str(s.to_string()), "£".to_string()));
+    }
+
+    if let Some(s) = expr.strip_prefix("Â£") {
         return Ok((Value::Str(s.to_string()), "£".to_string()));
     }
 
@@ -435,29 +458,55 @@ fn parse_loop_range_operand(expr: &str, state: &mut MorganicState) -> Result<i64
     }
 }
 
-fn parse_list_index(list_name: &str, index_expr: &str, state: &mut MorganicState) -> Result<Value, MorganicError> {
-    let seq = get_var(state, list_name)?.clone();
-    let list = if let Value::List(v) = seq {
-        v
-    } else {
-        return Err(MorganicError::new(format!("Indexing requires a list variable, got: {list_name}")));
-    };
-
-    let idx = if let Ok(i) = index_expr.trim().parse::<i64>() {
-        i
-    } else {
-        let (v, _) = parse_value_expr(index_expr, state)?;
-        match v {
-            Value::Int(i) => i,
-            _ => return Err(MorganicError::new("List index must be an integer.")),
+fn render_graph(points: &[(i64, i64)], x_min: i64, x_max: i64, y_min: i64, y_max: i64, label_step: i64) -> String {
+    let width = (x_max - x_min + 1).max(1) as usize;
+    let height = (y_max - y_min + 1).max(1) as usize;
+    let mut grid = vec![vec![' '; width]; height];
+    if y_min <= 0 && 0 <= y_max {
+        let row = (y_max - 0) as usize;
+        for x in 0..width {
+            grid[row][x] = '-';
         }
-    };
-
-    if idx < 0 || idx as usize >= list.len() {
-        return Err(MorganicError::new(format!("List index out of bounds: {idx} (size={}).", list.len())));
     }
+    if x_min <= 0 && 0 <= x_max {
+        let col = (0 - x_min) as usize;
+        for row in grid.iter_mut().take(height) {
+            row[col] = '|';
+        }
+    }
+    if x_min <= 0 && 0 <= x_max && y_min <= 0 && 0 <= y_max {
+        grid[(y_max - 0) as usize][(0 - x_min) as usize] = '+';
+    }
+    for (x, y) in points {
+        if *x >= x_min && *x <= x_max && *y >= y_min && *y <= y_max {
+            grid[(y_max - *y) as usize][(*x - x_min) as usize] = '*';
+        }
+    }
+    let mut out = grid
+        .into_iter()
+        .map(|row| row.into_iter().collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n");
+    if label_step > 0 {
+        out.push_str(&format!("\nx labels: {x_min}..{x_max} step={label_step}"));
+        out.push_str(&format!("\ny labels: {y_min}..{y_max} step={label_step}"));
+    }
+    out
+}
 
-    Ok(list[idx as usize].clone())
+fn list_to_points(list: &[Value]) -> Result<Vec<(i64, i64)>, MorganicError> {
+    let mut points = Vec::with_capacity(list.len());
+    for item in list {
+        match item {
+            Value::List(pair) if pair.len() == 2 => {
+                let x = if let Value::Int(v) = pair[0] { v } else { return Err(MorganicError::new("Graph points must be integer coordinate pairs.")); };
+                let y = if let Value::Int(v) = pair[1] { v } else { return Err(MorganicError::new("Graph points must be integer coordinate pairs.")); };
+                points.push((x, y));
+            }
+            _ => return Err(MorganicError::new("Graph payload must be a list of coordinate pairs.")),
+        }
+    }
+    Ok(points)
 }
 
 fn print_value(value: &Value) {
@@ -505,6 +554,35 @@ pub fn execute_statement(stmt: &str, state: &mut MorganicState) -> Result<(), Mo
         let open = stmt.find("){").expect("contains checked");
         let header = &stmt[2..open];
         let body = &stmt[open + 2..stmt.len() - 1];
+        if let Some((var_name, seq_expr)) = header.split_once(",_[") {
+            if !seq_expr.ends_with(']') {
+                return Err(MorganicError::new("Bad foreach loop syntax."));
+            }
+            let seq_name = &seq_expr[..seq_expr.len() - 1];
+            let seq = get_var(state, seq_name)?.clone();
+            let items = if let Value::List(v) = seq {
+                v
+            } else {
+                return Err(MorganicError::new("List iteration requires a list variable."));
+            };
+            let key = format!("&{}", var_name.trim());
+            let old_value = state.env.get(&key).cloned();
+            let old_type = state.types.get(&key).cloned();
+            for item in items {
+                store_value(state, &key, item, None)?;
+                execute_program(body, state)?;
+            }
+            if let Some(v) = old_value {
+                state.env.insert(key.clone(), v);
+                if let Some(t) = old_type {
+                    state.types.insert(key, t);
+                }
+            } else {
+                state.env.remove(&key);
+                state.types.remove(&key);
+            }
+            return Ok(());
+        }
         if let Some((first, second)) = header.split_once(',') {
             let start = parse_loop_range_operand(first.trim(), state)?;
             let end = parse_loop_range_operand(second.trim(), state)?;
@@ -530,6 +608,62 @@ pub fn execute_statement(stmt: &str, state: &mut MorganicState) -> Result<(), Mo
             Value::List(v) => format!("{:?}", v),
         };
         fs::write(filename, raw).map_err(|e| MorganicError::new(format!("File write failed: {e}")))?;
+        return Ok(());
+    }
+
+    if stmt.starts_with('[') && stmt.contains("]$") {
+        let marker = stmt.find("]$").expect("contains checked");
+        let name = &stmt[1..marker];
+        let target = stmt[marker + 2..].trim();
+        let value = get_var(state, name)?.clone();
+        let out = match target {
+            "£" => Value::Str(match value {
+                Value::Str(s) => s,
+                Value::Int(v) => v.to_string(),
+                Value::Float(v) => v.to_string(),
+                Value::Bool(v) => {
+                    if v { "true".to_string() } else { "false".to_string() }
+                }
+                Value::List(v) => format!("{:?}", v),
+            }),
+            "b" => Value::Bool(match value {
+                Value::Bool(v) => v,
+                Value::Int(v) => v != 0,
+                Value::Float(v) => v != 0.0,
+                Value::Str(ref s) => !s.is_empty(),
+                Value::List(ref v) => !v.is_empty(),
+            }),
+            "f" => Value::Float(match value {
+                Value::Float(v) => v,
+                Value::Int(v) => v as f64,
+                Value::Str(ref s) => s.parse::<f64>().map_err(|_| MorganicError::new("Cannot convert string to float."))?,
+                Value::Bool(v) => {
+                    if v { 1.0 } else { 0.0 }
+                }
+                Value::List(_) => return Err(MorganicError::new("Cannot convert list to float.")),
+            }),
+            t if is_integer_type(t) => Value::Int(match value {
+                Value::Int(v) => v,
+                Value::Float(v) => v.trunc() as i64,
+                Value::Str(ref s) => s.parse::<i64>().map_err(|_| MorganicError::new("Cannot convert string to int."))?,
+                Value::Bool(v) => {
+                    if v { 1 } else { 0 }
+                }
+                Value::List(_) => return Err(MorganicError::new("Cannot convert list to int.")),
+            }),
+            _ => return Err(MorganicError::new(format!("Unsupported conversion target: {target}"))),
+        };
+        if is_integer_type(target) {
+            if let Value::Int(v) = out {
+                validate_integer_range(v, target)?;
+                state.env.insert(name.to_string(), Value::Int(v));
+            } else {
+                state.env.insert(name.to_string(), out);
+            }
+        } else {
+            state.env.insert(name.to_string(), out);
+        }
+        state.types.insert(name.to_string(), target.to_string());
         return Ok(());
     }
 
@@ -642,34 +776,90 @@ pub fn execute_statement(stmt: &str, state: &mut MorganicState) -> Result<(), Mo
         return Ok(());
     }
 
-    if stmt.starts_with("1([") && stmt.ends_with("])" ) {
-        let name = &stmt[3..stmt.len() - 2];
-        print_value(get_var(state, name)?);
-        return Ok(());
-    }
-
-    if stmt.starts_with("1([") && stmt.contains("]@") && stmt.ends_with(')') {
-        let marker = stmt.find("]@").expect("contains checked");
-        let name = &stmt[3..marker];
-        let index_expr = &stmt[marker + 2..stmt.len() - 1];
-        let v = parse_list_index(name, index_expr, state)?;
-        print_value(&v);
-        return Ok(());
-    }
-
-    if stmt.starts_with("1(|") && stmt.ends_with("|)") {
-        let expr = &stmt[3..stmt.len() - 2];
-        let v = eval_arithmetic(expr, state)?;
-        print_value(&v);
-        return Ok(());
-    }
-
     if stmt.starts_with("1(") && stmt.ends_with(')') {
         let inner = &stmt[2..stmt.len() - 1];
-        if let Some(s) = inner.strip_prefix('£') {
-            println!("{s}");
-            return Ok(());
+        let (value, _) = parse_value_expr(inner, state)?;
+        print_value(&value);
+        return Ok(());
+    }
+
+    if stmt.starts_with("0") && stmt.ends_with('}') && stmt.contains('{') {
+        let open = stmt.find('{').expect("contains checked");
+        let header = &stmt[..open];
+        let payload = stmt[open + 1..stmt.len() - 1].trim();
+        let mut label_step = 0i64;
+        let mut x_min = -10i64;
+        let mut x_max = 10i64;
+        let mut y_min = -10i64;
+        let mut y_max = 10i64;
+        if let Some(dot_idx) = header.find('.') {
+            let rest = &header[dot_idx + 1..];
+            let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if !digits.is_empty() {
+                label_step = digits.parse::<i64>().unwrap_or(0);
+            }
         }
+        if let (Some(lp), Some(rp)) = (header.find('('), header.rfind(')')) {
+            let range = &header[lp + 1..rp];
+            if let Some((xraw, yraw)) = range.split_once(',') {
+                if let Some((xmin, xmax)) = xraw.split_once('&') {
+                    x_min = xmin.trim().parse().map_err(|_| MorganicError::new("Bad x-axis range"))?;
+                    x_max = xmax.trim().parse().map_err(|_| MorganicError::new("Bad x-axis range"))?;
+                }
+                if let Some((ymin, ymax)) = yraw.split_once('&') {
+                    y_min = ymin.trim().parse().map_err(|_| MorganicError::new("Bad y-axis range"))?;
+                    y_max = ymax.trim().parse().map_err(|_| MorganicError::new("Bad y-axis range"))?;
+                }
+            }
+        }
+        let points = if payload.starts_with('[') && payload.ends_with(']') {
+            let (value, _) = parse_value_expr(payload, state)?;
+            let list = if let Value::List(v) = value { v } else { return Err(MorganicError::new("Graph payload must be a list value.")); };
+            list_to_points(&list)?
+        } else {
+            let mut points = Vec::new();
+            let mut rest = payload;
+            while let Some(start) = rest.find('(') {
+                let after = &rest[start + 1..];
+                let Some(end) = after.find(')') else { break };
+                let pair = &after[..end];
+                let Some((x, y)) = pair.split_once(',') else { return Err(MorganicError::new("Bad graph coordinate pair.")); };
+                points.push((
+                    x.trim().parse().map_err(|_| MorganicError::new("Bad graph x coordinate"))?,
+                    y.trim().parse().map_err(|_| MorganicError::new("Bad graph y coordinate"))?,
+                ));
+                rest = &after[end + 1..];
+            }
+            points
+        };
+        println!("{}", render_graph(&points, x_min, x_max, y_min, y_max, label_step));
+        return Ok(());
+    }
+
+    if stmt.starts_with('[') && stmt.contains("]=;(") && stmt.ends_with(')') {
+        let marker = stmt.find("]=;(").expect("contains checked");
+        let name = &stmt[1..marker];
+        let prompt_expr = &stmt[marker + 4..stmt.len() - 1];
+        let prompt = if let Some(s) = prompt_expr.strip_prefix('£') { s.to_string() } else { prompt_expr.to_string() };
+        print!("{prompt}");
+        io::stdout().flush().map_err(|e| MorganicError::new(format!("Input flush failed: {e}")))?;
+        let mut line = String::new();
+        match io::stdin().read_line(&mut line) {
+            Ok(count) => {
+                if count == 0 {
+                    line = "0".to_string();
+                }
+                if line.ends_with('\n') {
+                    line.pop();
+                    if line.ends_with('\r') {
+                        line.pop();
+                    }
+                }
+            }
+            Err(e) => return Err(MorganicError::new(format!("Input failed: {e}"))),
+        }
+        store_value(state, name, Value::Str(line), Some("£".to_string()))?;
+        return Ok(());
     }
 
     if stmt.starts_with('[') && stmt.contains("]=") {

@@ -13,8 +13,10 @@ function drawBenchmarkChart(data) {
 
   const values = [
     { label: "Python mean", value: toMs(data.python.mean_s), color: "#7ec8ff" },
+    { label: "Node mean", value: toMs(data.node.mean_s), color: "#ffb36f" },
     { label: "Rust mean", value: toMs(data.rust.mean_s), color: "#61f5c8" },
     { label: "Python median", value: toMs(data.python.median_s), color: "#6ea9ff" },
+    { label: "Node median", value: toMs(data.node.median_s), color: "#ff9f4d" },
     { label: "Rust median", value: toMs(data.rust.median_s), color: "#53ddb4" }
   ];
 
@@ -57,16 +59,22 @@ async function loadBenchmarks() {
 
     const py = toMs(data.python.mean_s);
     const rs = toMs(data.rust.mean_s);
+    const node = toMs(data.node.mean_s);
     const pyMin = toMs(data.python.min_s);
     const pyMax = toMs(data.python.max_s);
+    const nodeMin = toMs(data.node.min_s);
+    const nodeMax = toMs(data.node.max_s);
     const rsMin = toMs(data.rust.min_s);
     const rsMax = toMs(data.rust.max_s);
     const medianGap = toMs(data.python.median_s - data.rust.median_s);
     document.getElementById("py-time").textContent = `${formatMs(py)} avg`;
+    document.getElementById("node-time").textContent = `${formatMs(node)} avg`;
     document.getElementById("rs-time").textContent = `${formatMs(rs)} avg`;
-    document.getElementById("speedup").textContent = `${data.speedup_mean.toFixed(2)}x faster`;
+    document.getElementById("speedup").textContent = `${data.speedup_mean_vs_rust.toFixed(2)}x faster`;
     document.getElementById("py-range").textContent = `${formatMs(pyMin)} / ${formatMs(pyMax)}`;
+    document.getElementById("node-range").textContent = `${formatMs(nodeMin)} / ${formatMs(nodeMax)}`;
     document.getElementById("rs-range").textContent = `${formatMs(rsMin)} / ${formatMs(rsMax)}`;
+    document.getElementById("node-speedup").textContent = `${data.speedup_node_vs_rust.toFixed(2)}x`;
     document.getElementById("median-gap").textContent = formatMs(medianGap);
     document.getElementById("workload").textContent = `Workload: ${data.workload}`;
     drawBenchmarkChart(data);
@@ -80,7 +88,7 @@ async function loadBenchmarks() {
       second: "2-digit",
       timeZoneName: "short"
     });
-    meta.textContent = `Runs: ${data.iterations} (+${data.warmup_runs} warmup), output=${data.python.last_output}; measured ${measured}.`;
+    meta.textContent = `Runs: ${data.iterations} (+${data.warmup_runs} warmup), output=${data.python.last_output}/${data.node.last_output}/${data.rust.last_output}; measured ${measured}.`;
   } catch (error) {
     meta.textContent = "Could not load benchmark data locally.";
   }

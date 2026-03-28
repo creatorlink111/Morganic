@@ -1,6 +1,6 @@
 {
-  "generated_at_utc": "2026-03-27T00:00:00Z",
-  "machine_note": "Measured in the project container environment using release Rust build and module-invoked Python runtime.",
+  "generated_at_utc": "2026-03-28T00:00:00Z",
+  "machine_note": "Measured in the project container environment using release Rust build, module-invoked Python runtime, and Node CLI runtime.",
   "workload": "[sum]=^0^:4(0,5000){[sum]=|`sum+1|}:1([sum])",
   "iterations": 6,
   "warmup_runs": 1,
@@ -18,5 +18,13 @@
     "max_s": 0.03256565999981831,
     "last_output": "5000"
   },
-  "speedup_mean": 37.53792472843243
+  "node": {
+    "mean_s": 0.2892546548333333,
+    "median_s": 0.291529795,
+    "min_s": 0.2589349699999998,
+    "max_s": 0.31198673300000007,
+    "last_output": "5000"
+  },
+  "speedup_mean_vs_rust": 37.53792472843243,
+  "speedup_node_vs_rust": 11.712818976840936
 }

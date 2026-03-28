@@ -8,9 +8,17 @@ pub fn strip_comments(source: &str) -> String {
     let chars: Vec<char> = source.chars().collect();
     let mut out = String::new();
     let mut i = 0usize;
+    let mut in_arithmetic = false;
 
     while i < chars.len() {
-        if chars[i] == '%' {
+        if chars[i] == '|' {
+            in_arithmetic = !in_arithmetic;
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        }
+
+        if chars[i] == '%' && !in_arithmetic {
             let next = chars.get(i + 1).copied().unwrap_or('\0');
             if next == '%' {
                 i += 2;

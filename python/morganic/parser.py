@@ -918,7 +918,10 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
         prompt = m.group(2)
         if prompt.startswith('£'):
             prompt = prompt[1:]
-        value = input(prompt)
+        try:
+            value = input(prompt)
+        except EOFError:
+            value = '0'
         store_value(state, name, value, '£')
         return
 
