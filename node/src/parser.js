@@ -1,0 +1,252 @@
+const readline = require('node:readline/promises');
+const { stdin: input, stdout: output } = require('node:process');
+const { splitTopLevel, splitStatements } = require('./splitter');
+const { safeEvalArithmetic } = require('./arithmetic');
+
+function typeOfValue(value) {
+  if (typeof value === 'number') return Number.isInteger(value) ? 'i' : 'f';
+  if (typeof value === 'boolean') return 'b';
+  if (typeof value === 'string') return '£';
+  if (Array.isArray(value)) return 'l';
+  if (value && typeof value === 'object' && value.__class__) return `.${value.__class__}.`;
+  return 'unknown';
+}
+
+function parsePairs(text) {
+  const matches = [...text.matchAll(/\((-?\d+),(-?\d+)\)/g)];
+  return matches.map((m) => [Number(m[1]), Number(m[2])]);
+}
+
+function renderGraph(points, xMin = -10, xMax = 10, yMin = -10, yMax = 10) {
+  const width = xMax - xMin + 1;
+  const height = yMax - yMin + 1;
+  const grid = Array.from({ length: height }, () => Array.from({ length: width }, () => ' '));
+  for (let x = xMin; x <= xMax; x += 1) if (0 >= yMin && 0 <= yMax) grid[yMax][x - xMin] = '-';
+  for (let y = yMin; y <= yMax; y += 1) if (0 >= xMin && 0 <= xMax) grid[yMax - y][0 - xMin] = '|';
+  if (0 >= xMin && 0 <= xMax && 0 >= yMin && 0 <= yMax) grid[yMax][0 - xMin] = '+';
+  for (const [x, y] of points) if (x >= xMin && x <= xMax && y >= yMin && y <= yMax) grid[yMax - y][x - xMin] = '*';
+  return grid.map((r) => r.join('')).join('\n');
+}
+
+class Parser {
+  constructor(state) {
+    this.state = state;
+  }
+
+  async execute(source) {
+    const statements = splitStatements(source);
+    for (const stmt of statements) await this.executeStatement(stmt);
+  }
+
+  readVar(name) {
+    if (!this.state.variables.has(name)) throw new Error(`Unknown variable: ${name}`);
+    return this.state.variables.get(name).value;
+  }
+
+  setVar(name, value, explicitType = null) {
+    this.state.variables.set(name, { value, type: explicitType || typeOfValue(value) });
+  }
+
+  simpleEval(raw) {
+    if (raw.startsWith('^') && raw.endsWith('^')) return Number(raw.slice(1, -1));
+    if (raw.startsWith('£')) return raw.slice(1);
+    if (raw === 'b/' || raw === '/') return true;
+    if (raw === 'bfalse') return false;
+    if (raw.startsWith('[') && raw.endsWith(']')) return this.readVar(raw.slice(1, -1));
+    return raw;
+  }
+
+  async evaluateValue(expr) {
+    const raw = expr.trim();
+    if (raw.startsWith('^') && raw.endsWith('^')) return Number(raw.slice(1, -1));
+    if (/^i\d+\^.*\^$/.test(raw)) return Number(raw.slice(raw.indexOf('^') + 1, -1));
+    if (raw.startsWith('£')) return raw.slice(1);
+    if (raw === 'b/' || raw === '/') return true;
+    if (raw.startsWith('[') && raw.endsWith(']')) return this.readVar(raw.slice(1, -1));
+    if (raw.startsWith('&')) return this.readVar(raw.slice(1));
+    if (raw.startsWith('|') && raw.endsWith('|')) return safeEvalArithmetic(raw.slice(1, -1), this.state);
+    if (raw.startsWith('l(c)<') && raw.endsWith('>')) return parsePairs(raw.slice(5, -1));
+    if (raw.startsWith('m<')) {
+      const parts = [...raw.matchAll(/<([^>]*)>/g)].map((m) => m[1]);
+      const xs = parts[0].split(',').filter(Boolean).map(Number);
+      const ys = parts[1].split(',').filter(Boolean).map(Number);
+      return xs.map((x, i) => [x, ys[i]]);
+    }
+    if (raw.startsWith('l(') && raw.includes('<') && raw.endsWith('>')) {
+      const body = raw.slice(raw.indexOf('<') + 1, -1);
+      if (!body.trim()) return [];
+      const out = [];
+      for (const item of splitTopLevel(body, ',')) out.push(await this.evaluateValue(item));
+      return out;
+    }
+    if (raw.startsWith('"') && raw.endsWith('"')) return raw.slice(1, -1);
+    if (raw.startsWith('*')) return this.instantiateStar(raw);
+    if (raw.startsWith('.')) return this.instantiateDot(raw);
+    const em = raw.match(/^"([^"]+)"(\w+)$/);
+    if (em) {
+      const set = this.state.enums.get(em[1]);
+      if (!set || !set.has(em[2])) throw new Error(`Unknown enum value ${raw}`);
+      return em[2];
+    }
+    throw new Error(`Unsupported value expression: ${raw}`);
+  }
+
+  instantiateStar(raw) {
+    const m = raw.match(/^\*([A-Za-z_]\w*)\{(.*)\}$/);
+    if (!m) throw new Error(`Invalid constructor syntax: ${raw}`);
+    const cls = this.state.classes.get(m[1]);
+    if (!cls) throw new Error(`Unknown class: ${m[1]}`);
+    const obj = { __class__: m[1], ...cls.defaults };
+    if (m[2].trim()) {
+      for (const entry of splitTopLevel(m[2], ',')) {
+        const [k, v] = entry.includes('=') ? entry.split(/=(.+)/) : entry.split(/:(.+)/);
+        obj[k.trim()] = this.simpleEval(v.trim());
+      }
+    }
+    return obj;
+  }
+
+  instantiateDot(raw) {
+    const m = raw.match(/^\.([A-Za-z_]\w*)\.(.+)$/);
+    if (!m) throw new Error(`Invalid dot constructor syntax: ${raw}`);
+    const cls = this.state.classes.get(m[1]);
+    if (!cls) throw new Error(`Unknown class: ${m[1]}`);
+    const obj = { __class__: m[1], ...cls.defaults };
+    for (const entry of splitTopLevel(m[2], ',')) {
+      const [k, v] = entry.split(/:(.+)/);
+      obj[k.trim()] = this.simpleEval(v.trim());
+    }
+    return obj;
+  }
+
+  evalCondition(text) {
+    const [left, right] = text.split('..').map((s) => s.trim());
+    return this.simpleEval(left) === this.simpleEval(right);
+  }
+
+  async executeBlock(body) {
+    for (const stmt of splitStatements(body)) await this.executeStatement(stmt);
+  }
+
+  async executeStatement(stmt) {
+    const s = stmt.trim();
+    if (!s) return;
+
+    const assign = s.match(/^\[([A-Za-z_]\w*)\]=(.*)$/);
+    if (assign) {
+      this.setVar(assign[1], await this.evaluateValue(assign[2].trim()));
+      return;
+    }
+
+    const conv = s.match(/^\[([A-Za-z_]\w*)\]\$([A-Za-z0-9£()]+)$/);
+    if (conv) {
+      const val = this.readVar(conv[1]);
+      const t = conv[2];
+      let out = val;
+      if (t === '£') out = String(val);
+      else if (t === 'b') out = Boolean(val);
+      else if (t === 'f') out = Number(val);
+      else if (t.startsWith('i')) out = Math.trunc(Number(val));
+      this.setVar(conv[1], out, t);
+      return;
+    }
+
+    const print = s.match(/^1\((.*)\)$/s);
+    if (print) {
+      const v = await this.evaluateValue(print[1]);
+      console.log(typeof v === 'object' ? JSON.stringify(v) : v);
+      return;
+    }
+
+    const graph = s.match(/^0(?:\.\d+)?(?:\((-?\d+)&(-?\d+),(-?\d+)&(-?\d+)\))?\{(.*)\}$/s);
+    if (graph) {
+      const payload = graph[5].trim();
+      const points = payload.startsWith('[') ? this.readVar(payload.slice(1, -1)) : parsePairs(payload);
+      console.log(renderGraph(points, graph[1] ? Number(graph[1]) : -10, graph[2] ? Number(graph[2]) : 10, graph[3] ? Number(graph[3]) : -10, graph[4] ? Number(graph[4]) : 10));
+      return;
+    }
+
+    const ifStmt = s.match(/^2\((.*)\)\{(.*)\}$/s);
+    if (ifStmt) {
+      if (this.evalCondition(ifStmt[1])) await this.executeBlock(ifStmt[2]);
+      return;
+    }
+
+    const whileStmt = s.match(/^3\((.*)\)\{(.*)\}$/s);
+    if (whileStmt) {
+      let n = 0;
+      while (this.evalCondition(whileStmt[1])) {
+        await this.executeBlock(whileStmt[2]);
+        n += 1;
+        if (n > 100000) throw new Error('Loop guard triggered');
+      }
+      return;
+    }
+
+    const forRange = s.match(/^4\((-?\d+),(-?\d+)\)\{(.*)\}$/s);
+    if (forRange) {
+      for (let i = Number(forRange[1]); i <= Number(forRange[2]); i += 1) {
+        this.setVar('i', i, 'i');
+        await this.executeBlock(forRange[3]);
+      }
+      return;
+    }
+
+    const forEach = s.match(/^4\(([A-Za-z_]\w*),(.+)\)\{(.*)\}$/s);
+    if (forEach) {
+      const iterableRaw = forEach[2].trim();
+      const iterable = iterableRaw.startsWith('_[') ? this.readVar(iterableRaw.slice(2, -1)) : String(await this.evaluateValue(iterableRaw));
+      for (const item of iterable) {
+        this.setVar(forEach[1], item);
+        await this.executeBlock(forEach[3]);
+      }
+      return;
+    }
+
+    const fnDef = s.match(/^#([A-Za-z_]\w*)'([^.]*)\.([^']+)'#\{(.*)\}$/s);
+    if (fnDef) {
+      this.state.functions.set(fnDef[1], { paramName: fnDef[2], paramType: fnDef[3], body: fnDef[4] });
+      return;
+    }
+
+    const fnCall = s.match(/^#([A-Za-z_]\w*)\s+(.+)$/);
+    if (fnCall) {
+      const fn = this.state.functions.get(fnCall[1]);
+      if (!fn) throw new Error(`Unknown function: ${fnCall[1]}`);
+      this.setVar(fn.paramName, await this.evaluateValue(fnCall[2]), fn.paramType);
+      await this.executeBlock(fn.body);
+      return;
+    }
+
+    const classDef = s.match(/^\*([A-Za-z_]\w*)\{(.*)\}$/s);
+    if (classDef) {
+      const defaults = {};
+      for (const inner of splitStatements(classDef[2])) {
+        const m = inner.match(/^\[([A-Za-z_]\w*)\]=(.*)$/);
+        if (m) defaults[m[1]] = this.simpleEval(m[2].trim());
+      }
+      this.state.classes.set(classDef[1], { defaults });
+      return;
+    }
+
+    const enumDef = s.match(/^"([^"]+)"=(.+)$/);
+    if (enumDef) {
+      this.state.enums.set(enumDef[1], new Set(enumDef[2].split('¬').map((x) => x.trim()).filter(Boolean)));
+      return;
+    }
+
+    const inputStmt = s.match(/^\[([A-Za-z_]\w*)\]=;\((.*)\)$/s);
+    if (inputStmt) {
+      const prompt = await this.evaluateValue(inputStmt[2]);
+      const rl = readline.createInterface({ input, output });
+      const answer = await rl.question(String(prompt));
+      rl.close();
+      this.setVar(inputStmt[1], answer, '£');
+      return;
+    }
+
+    throw new Error(`Unrecognized statement: ${s}`);
+  }
+}
+
+module.exports = { Parser };
