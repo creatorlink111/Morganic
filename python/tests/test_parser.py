@@ -57,6 +57,26 @@ def test_append_and_index_can_be_nested_inside_value_expression() -> None:
     assert state.env["mylist"] == [1, 2, 3, 3]
 
 
+def test_nested_index_then_append_precedence() -> None:
+    state = MorganicState()
+    execute_program("[xs]=l(i)<^4^,^5^,^6^>:[idxs]=l(i)<^0^,^1^>:[xs]~[xs]@[idxs]@^1^", state)
+    assert state.env["xs"] == [4, 5, 6, 5]
+
+
+def test_append_requires_typed_list_target() -> None:
+    state = MorganicState()
+    with pytest.raises(MorganicError) as exc:
+        execute_program("[x]=^1^:[x]~^2^", state)
+    assert "typed list variable" in str(exc.value)
+
+
+def test_index_operator_requires_integer_index() -> None:
+    state = MorganicState()
+    with pytest.raises(MorganicError) as exc:
+        execute_program("[xs]=l(i)<^1^,^2^>:[v]=[xs]@^1.5^", state)
+    assert "integer" in str(exc.value)
+
+
 def test_file_write_statement_writes_content(tmp_path: Path) -> None:
     state = MorganicState()
     out_file = tmp_path / "result.txt"

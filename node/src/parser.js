@@ -3,13 +3,25 @@ const { stdin: input, stdout: output } = require('node:process');
 const { splitTopLevel, splitStatements } = require('./splitter');
 const { safeEvalArithmetic } = require('./arithmetic');
 
+const INTEGER_TYPE_PATTERN = /^i(?:2|4|8|16|32|64|128|256|512)?$/;
+
 function typeOfValue(value) {
   if (typeof value === 'number') return Number.isInteger(value) ? 'i' : 'f';
   if (typeof value === 'boolean') return 'b';
   if (typeof value === 'string') return '£';
-  if (Array.isArray(value)) return 'l';
+  if (Array.isArray(value)) return value.__morganicType || 'l(?)';
   if (value && typeof value === 'object' && value.__class__) return `.${value.__class__}.`;
   return 'unknown';
+}
+
+function annotateListType(list, typeCode) {
+  Object.defineProperty(list, '__morganicType', {
+    value: typeCode,
+    enumerable: false,
+    configurable: true,
+    writable: true,
+  });
+  return list;
 }
 
 function parsePairs(text) {
@@ -17,7 +29,7 @@ function parsePairs(text) {
   return matches.map((m) => [Number(m[1]), Number(m[2])]);
 }
 
-function renderGraph(points, xMin = -10, xMax = 10, yMin = -10, yMax = 10) {
+function renderGraph(points, xMin = -10, xMax = 10, yMin = -10, yMax = 10, labelStep = 0) {
   const width = xMax - xMin + 1;
   const height = yMax - yMin + 1;
   const grid = Array.from({ length: height }, () => Array.from({ length: width }, () => ' '));
@@ -25,7 +37,12 @@ function renderGraph(points, xMin = -10, xMax = 10, yMin = -10, yMax = 10) {
   for (let y = yMin; y <= yMax; y += 1) if (0 >= xMin && 0 <= xMax) grid[yMax - y][0 - xMin] = '|';
   if (0 >= xMin && 0 <= xMax && 0 >= yMin && 0 <= yMax) grid[yMax][0 - xMin] = '+';
   for (const [x, y] of points) if (x >= xMin && x <= xMax && y >= yMin && y <= yMax) grid[yMax - y][x - xMin] = '*';
-  return grid.map((r) => r.join('')).join('\n');
+  const lines = grid.map((r) => r.join(''));
+  if (labelStep > 0) {
+    lines.push(`x labels: ${xMin}..${xMax} step=${labelStep}`);
+    lines.push(`y labels: ${yMin}..${yMax} step=${labelStep}`);
+  }
+  return lines.join('\n');
 }
 
 function splitTopLevelOperator(text, operator) {
@@ -66,7 +83,12 @@ class Parser {
   }
 
   setVar(name, value, explicitType = null) {
-    this.state.variables.set(name, { value, type: explicitType || typeOfValue(value) });
+    const resolvedType = explicitType || typeOfValue(value);
+    const existing = this.state.variables.get(name);
+    if (existing && explicitType == null && existing.type !== resolvedType) {
+      throw new Error(`Type safety violation: variable '${name}' is ${existing.type}, cannot assign ${resolvedType}.`);
+    }
+    this.state.variables.set(name, { value, type: explicitType || (existing ? existing.type : resolvedType) });
   }
 
   simpleEval(raw) {
@@ -105,7 +127,15 @@ class Parser {
     }
 
     if (raw.startsWith('^') && raw.endsWith('^')) return Number(raw.slice(1, -1));
-    if (/^i\d+\^.*\^$/.test(raw)) return Number(raw.slice(raw.indexOf('^') + 1, -1));
+    if (/^i(?:\d+)?\^.*\^$/.test(raw)) {
+      const typeCode = raw.slice(0, raw.indexOf('^'));
+      if (!INTEGER_TYPE_PATTERN.test(typeCode)) {
+        throw new Error(`Unknown integer type '${typeCode}'. Expected i, i8, i16, i32, etc.`);
+      }
+      const lit = raw.slice(raw.indexOf('^') + 1, -1).trim();
+      if (!/^[+-]?\d+$/.test(lit)) throw new Error(`${typeCode} requires an integer literal inside ^ ^.`);
+      return Number(lit);
+    }
     if (raw.startsWith('£')) return raw.slice(1);
     if (raw === 'b/' || raw === '/') return true;
     if (raw.startsWith('[') && raw.endsWith(']')) return this.readVar(raw.slice(1, -1));
@@ -119,11 +149,16 @@ class Parser {
       return xs.map((x, i) => [x, ys[i]]);
     }
     if (raw.startsWith('l(') && raw.includes('<') && raw.endsWith('>')) {
+      const typeClose = raw.indexOf(')');
+      const elementType = raw.slice(2, typeClose).trim();
+      if (!/^(?:£|b|f|i(?:2|4|8|16|32|64|128|256|512)?|c)$/.test(elementType)) {
+        throw new Error(`Unsupported list element type: ${elementType}`);
+      }
       const body = raw.slice(raw.indexOf('<') + 1, -1);
-      if (!body.trim()) return [];
+      if (!body.trim()) return annotateListType([], `l(${elementType})`);
       const out = [];
       for (const item of splitTopLevel(body, ',')) out.push(await this.evaluateValue(item));
-      return out;
+      return annotateListType(out, `l(${elementType})`);
     }
     if (raw.startsWith('"') && raw.endsWith('"')) return raw.slice(1, -1);
     if (raw.startsWith('*')) return this.instantiateStar(raw);
@@ -133,6 +168,9 @@ class Parser {
       const set = this.state.enums.get(em[1]);
       if (!set || !set.has(em[2])) throw new Error(`Unknown enum value ${raw}`);
       return em[2];
+    }
+    if (/^[+-]?(?:\d+\.\d+|\d+)$/.test(raw)) {
+      throw new Error(`Numeric literals must be wrapped with ^ ^ (example: ^${raw}^).`);
     }
     throw new Error(`Unsupported value expression: ${raw}`);
   }
@@ -178,6 +216,16 @@ class Parser {
     const s = stmt.trim();
     if (!s) return;
 
+    const inputStmt = s.match(/^\[([A-Za-z_]\w*)\]=;\((.*)\)$/s);
+    if (inputStmt) {
+      const prompt = await this.evaluateValue(inputStmt[2]);
+      const rl = readline.createInterface({ input, output });
+      const answer = await rl.question(String(prompt));
+      rl.close();
+      this.setVar(inputStmt[1], answer, '£');
+      return;
+    }
+
     const assign = s.match(/^\[([A-Za-z_]\w*)\]=(.*)$/);
     if (assign) {
       this.setVar(assign[1], await this.evaluateValue(assign[2].trim()));
@@ -193,13 +241,27 @@ class Parser {
       else if (t === 'b') out = Boolean(val);
       else if (t === 'f') out = Number(val);
       else if (t.startsWith('i')) out = Math.trunc(Number(val));
+      else throw new Error(`Unknown conversion target '${t}'. Supported targets: i, i8..i512, f, b, £.`);
       this.setVar(conv[1], out, t);
       return;
     }
 
     const append = s.match(/^\[([A-Za-z_]\w*)\]~(.+)$/s);
     if (append) {
-      await this.evaluateValue(`[${append[1]}]~${append[2].trim()}`);
+      const meta = this.state.variables.get(append[1]);
+      if (!meta || !meta.type.startsWith('l(') || !meta.type.endsWith(')')) {
+        throw new Error('Append requires a typed list variable target like [items] of type l(...).');
+      }
+      if (!Array.isArray(meta.value)) {
+        throw new Error('Append target is corrupted: expected list value.');
+      }
+      const elementType = meta.type.slice(2, -1);
+      const value = await this.evaluateValue(append[2].trim());
+      const valueType = typeOfValue(value);
+      if (elementType !== valueType) {
+        throw new Error(`Type safety violation: append expects ${elementType}, got ${valueType}.`);
+      }
+      meta.value.push(value);
       return;
     }
 
@@ -210,11 +272,20 @@ class Parser {
       return;
     }
 
-    const graph = s.match(/^0(?:\.\d+)?(?:\((-?\d+)&(-?\d+),(-?\d+)&(-?\d+)\))?\{(.*)\}$/s);
+    const graph = s.match(/^0(?:\.(\d+))?(?:\((-?\d+)&(-?\d+),(-?\d+)&(-?\d+)\))?\{(.*)\}$/s);
     if (graph) {
-      const payload = graph[5].trim();
+      const payload = graph[6].trim();
       const points = payload.startsWith('[') ? this.readVar(payload.slice(1, -1)) : parsePairs(payload);
-      console.log(renderGraph(points, graph[1] ? Number(graph[1]) : -10, graph[2] ? Number(graph[2]) : 10, graph[3] ? Number(graph[3]) : -10, graph[4] ? Number(graph[4]) : 10));
+      console.log(
+        renderGraph(
+          points,
+          graph[2] ? Number(graph[2]) : -10,
+          graph[3] ? Number(graph[3]) : 10,
+          graph[4] ? Number(graph[4]) : -10,
+          graph[5] ? Number(graph[5]) : 10,
+          graph[1] ? Number(graph[1]) : 0,
+        ),
+      );
       return;
     }
 
@@ -284,16 +355,6 @@ class Parser {
     const enumDef = s.match(/^"([^"]+)"=(.+)$/);
     if (enumDef) {
       this.state.enums.set(enumDef[1], new Set(enumDef[2].split('¬').map((x) => x.trim()).filter(Boolean)));
-      return;
-    }
-
-    const inputStmt = s.match(/^\[([A-Za-z_]\w*)\]=;\((.*)\)$/s);
-    if (inputStmt) {
-      const prompt = await this.evaluateValue(inputStmt[2]);
-      const rl = readline.createInterface({ input, output });
-      const answer = await rl.question(String(prompt));
-      rl.close();
-      this.setVar(inputStmt[1], answer, '£');
       return;
     }
 
