@@ -28,6 +28,28 @@ function renderGraph(points, xMin = -10, xMax = 10, yMin = -10, yMax = 10) {
   return grid.map((r) => r.join('')).join('\n');
 }
 
+function splitTopLevelOperator(text, operator) {
+  let paren = 0;
+  let bracket = 0;
+  let brace = 0;
+  let angle = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === '(') paren += 1;
+    else if (ch === ')') paren = Math.max(0, paren - 1);
+    else if (ch === '[') bracket += 1;
+    else if (ch === ']') bracket = Math.max(0, bracket - 1);
+    else if (ch === '{') brace += 1;
+    else if (ch === '}') brace = Math.max(0, brace - 1);
+    else if (ch === '<') angle += 1;
+    else if (ch === '>') angle = Math.max(0, angle - 1);
+    if (ch === operator && paren === 0 && bracket === 0 && brace === 0 && angle === 0) {
+      return [text.slice(0, i).trim(), text.slice(i + 1).trim()];
+    }
+  }
+  return null;
+}
+
 class Parser {
   constructor(state) {
     this.state = state;
@@ -58,6 +80,30 @@ class Parser {
 
   async evaluateValue(expr) {
     const raw = expr.trim();
+    const appendSplit = splitTopLevelOperator(raw, '~');
+    if (appendSplit) {
+      const [leftRaw, rightRaw] = appendSplit;
+      const targetMatch = leftRaw.match(/^\[([A-Za-z_]\w*)\]$/);
+      if (!targetMatch) throw new Error('Append expression requires a list variable target like [list]~value.');
+      const target = targetMatch[1];
+      const current = this.readVar(target);
+      if (!Array.isArray(current)) throw new Error('Append requires a list variable target.');
+      const value = await this.evaluateValue(rightRaw);
+      current.push(value);
+      return current;
+    }
+
+    const indexSplit = splitTopLevelOperator(raw, '@');
+    if (indexSplit) {
+      const [leftRaw, rightRaw] = indexSplit;
+      const sequence = await this.evaluateValue(leftRaw);
+      if (!Array.isArray(sequence)) throw new Error("Index operator '@' requires a list value.");
+      const idx = await this.evaluateValue(rightRaw);
+      if (!Number.isInteger(idx)) throw new Error('List index must be an integer expression.');
+      if (idx < 0 || idx >= sequence.length) throw new Error(`List index out of bounds: ${idx}`);
+      return sequence[idx];
+    }
+
     if (raw.startsWith('^') && raw.endsWith('^')) return Number(raw.slice(1, -1));
     if (/^i\d+\^.*\^$/.test(raw)) return Number(raw.slice(raw.indexOf('^') + 1, -1));
     if (raw.startsWith('£')) return raw.slice(1);
@@ -148,6 +194,12 @@ class Parser {
       else if (t === 'f') out = Number(val);
       else if (t.startsWith('i')) out = Math.trunc(Number(val));
       this.setVar(conv[1], out, t);
+      return;
+    }
+
+    const append = s.match(/^\[([A-Za-z_]\w*)\]~(.+)$/s);
+    if (append) {
+      await this.evaluateValue(`[${append[1]}]~${append[2].trim()}`);
       return;
     }
 
