@@ -7,6 +7,7 @@ Clone this repository and pick the runtime you want:
 
 - `python/` → primary Python interpreter (slow, but currently the primary model)
 - `rust/` → significantly faster Rust interpreter (about 30x faster)
+- `node/` → full Node.js JavaScript rewrite in a separate third runtime folder
 
 ## Requirements
 
@@ -49,6 +50,27 @@ Run and then stay interactive:
 ```bash
 cd python
 python -m morganic -c "[x]=^10^" --interactive
+```
+
+## Node.js setup (`node/`)
+```bash
+cd node
+npm install
+npm run start -- --repl
+```
+
+Run inline code:
+
+```bash
+cd node
+npm run start -- -c "[a]=^3^:[b]=^4^:1(|`a+`b|)"
+```
+
+Run source file:
+
+```bash
+cd node
+npm run start -- ../example_script.elemens
 ```
 
 ## Rust setup (`rust/`)
@@ -385,8 +407,9 @@ Error: Unrecognized statement | line=2 | token='??bad' | hint=Check delimiters a
 
 ## High-Speed Rust Rewrite
 
-A separate, non-disruptive Rust rewrite now lives in `rust/`.
+Separate, non-disruptive rewrites now live in `rust/` and `node/`.
 
 - Keeps the main Python interpreter untouched.
 - Provides a full lower-runtime Rust interpreter and tests.
+- Provides a full Node.js JavaScript interpreter in a third runtime folder.
 - Run with `cd rust && cargo run -- -c "[a]=^3^:[b]=^4^:1(|`a+`b|)"`.
