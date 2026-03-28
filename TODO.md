@@ -2,12 +2,12 @@
 
 ## Short term (next 1–4 weeks)
 
-- [ ] Add cross-runtime conformance tests that run the same `.elemens` fixtures against Python, Rust, and Node and compare outputs/errors.
-- [ ] Add automated checks for every program in `example programs/` (with canned stdin for interactive scripts) in CI.
-- [ ] Expand parser tests for nested expression operators (`~`, `@`) in all runtimes, including invalid forms and precedence edge-cases.
-- [ ] Document expression operator semantics and precedence in `README.md` (especially append side effects in value expressions).
-- [ ] Improve Node runtime type metadata so typed-list behavior mirrors Python/Rust more strictly.
-- [ ] Add friendly runtime error messages for common input mistakes (e.g., unknown unit/operator in examples and tutorials).
+- [x] Add cross-runtime conformance tests that run the same `.elemens` fixtures against Python, Rust, and Node and compare outputs/errors.
+- [x] Add automated checks for every program in `example programs/` (with canned stdin for interactive scripts) in CI.
+- [x] Expand parser tests for nested expression operators (`~`, `@`) in all runtimes, including invalid forms and precedence edge-cases.
+- [x] Document expression operator semantics and precedence in `README.md` (especially append side effects in value expressions).
+- [x] Improve Node runtime type metadata so typed-list behavior mirrors Python/Rust more strictly.
+- [x] Add friendly runtime error messages for common input mistakes (e.g., unknown unit/operator in examples and tutorials).
 
 ## Medium term (1–3 months)
 

@@ -38,3 +38,28 @@ fn append_and_index_can_be_nested_inside_expression() {
         Some(&Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3), Value::Int(3)]))
     );
 }
+
+#[test]
+fn nested_index_then_append_precedence() {
+    let mut state = MorganicState::default();
+    execute_program("[xs]=l(i)<^4^,^5^,^6^>:[idxs]=l(i)<^0^,^1^>:[xs]~[xs]@[idxs]@^1^", &mut state)
+        .expect("program should execute");
+    assert_eq!(
+        state.env.get("xs"),
+        Some(&Value::List(vec![Value::Int(4), Value::Int(5), Value::Int(6), Value::Int(5)]))
+    );
+}
+
+#[test]
+fn append_requires_typed_list_target() {
+    let mut state = MorganicState::default();
+    let err = execute_program("[x]=^1^:[x]~^2^", &mut state).expect_err("append should fail");
+    assert!(err.message.contains("typed list variable"));
+}
+
+#[test]
+fn index_requires_integer_expression() {
+    let mut state = MorganicState::default();
+    let err = execute_program("[xs]=l(i)<^1^,^2^>:[v]=[xs]@^1.5^", &mut state).expect_err("index should fail");
+    assert!(err.message.contains("integer"));
+}

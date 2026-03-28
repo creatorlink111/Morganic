@@ -150,6 +150,32 @@ cargo test
 2([x]..^10^){1(£x is ten)}
 ```
 
+#### Value-expression operators (`~`, `@`) and precedence
+
+Morganic supports two list-focused operators in value expressions:
+
+- Append: `[list]~<expr>`
+  - Mutates the existing list variable by appending one value.
+  - Returns the updated list value.
+  - Left side must be a **list variable** (for example `[scores]`), not an arbitrary expression.
+- Index: `<list-expr>@<index-expr>`
+  - Returns one item from the list.
+  - Index must evaluate to an integer.
+
+Precedence and associativity:
+
+- `@` binds tighter than `~` (so `[xs]~[xs]@^2^` indexes first, then appends).
+- Both operators are evaluated left-to-right at the same nesting level.
+- Parentheses/brackets still determine grouping for nested expressions.
+
+Example:
+
+```text
+[xs]=l(i)<^1^,^2^,^3^>:
+[xs]~[xs]@^2^:
+1([xs]@^3^)    # prints 3
+```
+
 ### 6) Statements and control flow
 
 #### Print
