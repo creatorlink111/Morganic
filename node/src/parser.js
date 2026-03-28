@@ -67,6 +67,44 @@ function splitTopLevelOperator(text, operator) {
   return null;
 }
 
+function canonicalPrimitiveType(raw) {
+  const token = raw.trim();
+  const low = token.toLowerCase();
+  if (low === 'bool' || low === 'boolean') return 'b';
+  if (low === 'int' || low === 'integer') return 'i';
+  if (low === 'float') return 'f';
+  if (low === 'str' || low === 'string' || low === 's') return '£';
+  if (low === 'matrix') return 'm';
+  return token;
+}
+
+function isAllowedListElementType(typeCode) {
+  const normalized = canonicalPrimitiveType(typeCode);
+  if (/^(?:£|b|f|c|m|i(?:2|4|8|16|32|64|128|256|512)?)$/.test(normalized)) return true;
+  if (normalized.startsWith('l(') && normalized.endsWith(')')) {
+    const inner = normalized.slice(2, -1).trim();
+    return Boolean(inner) && isAllowedListElementType(inner);
+  }
+  return false;
+}
+
+function parsePointerAddress(raw) {
+  const token = raw.trim();
+  if (/^[+-]?\d+$/.test(token)) return Number(token);
+  if (/^0x[0-9a-f]+$/i.test(token)) return Number.parseInt(token, 16);
+  throw new Error(`Invalid pointer address: ${raw}`);
+}
+
+function parseByteLiteral(raw) {
+  const token = raw.trim();
+  let value;
+  if (/^0x[0-9a-f]{1,2}$/i.test(token)) value = Number.parseInt(token, 16);
+  else if (/^\d{1,3}$/.test(token)) value = Number(token);
+  else throw new Error(`Invalid byte literal: ${raw}`);
+  if (value < 0 || value > 255) throw new Error(`Byte literal out of range 0..255: ${value}`);
+  return value;
+}
+
 class Parser {
   constructor(state) {
     this.state = state;
@@ -102,6 +140,16 @@ class Parser {
 
   async evaluateValue(expr) {
     const raw = expr.trim();
+    const deref = raw.match(/^--([A-Za-z_]\w*)$/);
+    if (deref) {
+      const pointer = this.state.pointers.get(deref[1]);
+      if (!pointer) throw new Error(`Undefined pointer: ${deref[1]}`);
+      if (pointer.address == null) throw new Error(`Pointer '${deref[1]}' is free and cannot be dereferenced.`);
+      if (pointer.address < 0 || pointer.address >= pointer.buffer.length) {
+        throw new Error(`Pointer '${deref[1]}' address ${pointer.address} is out of bounds.`);
+      }
+      return pointer.buffer[pointer.address];
+    }
     const appendSplit = splitTopLevelOperator(raw, '~');
     if (appendSplit) {
       const [leftRaw, rightRaw] = appendSplit;
@@ -141,23 +189,30 @@ class Parser {
     if (raw.startsWith('[') && raw.endsWith(']')) return this.readVar(raw.slice(1, -1));
     if (raw.startsWith('&')) return this.readVar(raw.slice(1));
     if (raw.startsWith('|') && raw.endsWith('|')) return safeEvalArithmetic(raw.slice(1, -1), this.state);
-    if (raw.startsWith('l(c)<') && raw.endsWith('>')) return parsePairs(raw.slice(5, -1));
+    if (raw.startsWith('l(c)<') && raw.endsWith('>')) return annotateListType(parsePairs(raw.slice(5, -1)), 'l(c)');
     if (raw.startsWith('m<')) {
       const parts = [...raw.matchAll(/<([^>]*)>/g)].map((m) => m[1]);
       const xs = parts[0].split(',').filter(Boolean).map(Number);
       const ys = parts[1].split(',').filter(Boolean).map(Number);
-      return xs.map((x, i) => [x, ys[i]]);
+      return annotateListType(xs.map((x, i) => [x, ys[i]]), 'm');
     }
     if (raw.startsWith('l(') && raw.includes('<') && raw.endsWith('>')) {
       const typeClose = raw.indexOf(')');
-      const elementType = raw.slice(2, typeClose).trim();
-      if (!/^(?:£|b|f|i(?:2|4|8|16|32|64|128|256|512)?|c)$/.test(elementType)) {
+      const elementTypeRaw = raw.slice(2, typeClose).trim();
+      const elementType = canonicalPrimitiveType(elementTypeRaw);
+      if (!isAllowedListElementType(elementType)) {
         throw new Error(`Unsupported list element type: ${elementType}`);
       }
       const body = raw.slice(raw.indexOf('<') + 1, -1);
       if (!body.trim()) return annotateListType([], `l(${elementType})`);
       const out = [];
-      for (const item of splitTopLevel(body, ',')) out.push(await this.evaluateValue(item));
+      for (const item of splitTopLevel(body, ',')) {
+        const value = await this.evaluateValue(item);
+        if (typeOfValue(value) !== elementType) {
+          throw new Error(`Type safety violation: list expects ${elementType}, got ${typeOfValue(value)}.`);
+        }
+        out.push(value);
+      }
       return annotateListType(out, `l(${elementType})`);
     }
     if (raw.startsWith('"') && raw.endsWith('"')) return raw.slice(1, -1);
@@ -262,6 +317,52 @@ class Parser {
         throw new Error(`Type safety violation: append expects ${elementType}, got ${valueType}.`);
       }
       meta.value.push(value);
+      return;
+    }
+
+    const ptrBuffer = s.match(/^\+\+([A-Za-z_]\w*)==\[(.*)\]$/s);
+    if (ptrBuffer) {
+      const body = ptrBuffer[2].trim();
+      const buffer = body ? body.split(/\s+/).map(parseByteLiteral) : [];
+      this.state.pointers.set(ptrBuffer[1], { buffer, address: buffer.length ? 0 : null });
+      return;
+    }
+
+    const ptrFree = s.match(/^\+\+([A-Za-z_]\w*)==$/);
+    if (ptrFree) {
+      this.state.pointers.set(ptrFree[1], { buffer: [], address: null });
+      return;
+    }
+
+    const ptrCreate = s.match(/^\+\+([A-Za-z_]\w*)$/);
+    if (ptrCreate) {
+      if (!this.state.pointers.has(ptrCreate[1])) this.state.pointers.set(ptrCreate[1], { buffer: [], address: null });
+      return;
+    }
+
+    const ptrAssign = s.match(/^([A-Za-z_]\w*)\+\-(.+)$/s);
+    if (ptrAssign) {
+      const pointer = this.state.pointers.get(ptrAssign[1]);
+      if (!pointer) throw new Error(`Undefined pointer: ${ptrAssign[1]}`);
+      pointer.address = parsePointerAddress(ptrAssign[2]);
+      return;
+    }
+
+    const ptrMove = s.match(/^\+([A-Za-z_]\w*)([+-])(\d+)$/);
+    if (ptrMove) {
+      const pointer = this.state.pointers.get(ptrMove[1]);
+      if (!pointer) throw new Error(`Undefined pointer: ${ptrMove[1]}`);
+      if (pointer.address == null) throw new Error(`Pointer '${ptrMove[1]}' is free and cannot be shifted.`);
+      pointer.address += ptrMove[2] === '+' ? Number(ptrMove[3]) : -Number(ptrMove[3]);
+      return;
+    }
+
+    const ptrShift = s.match(/^-([A-Za-z_]\w*)>>(\d+)$/);
+    if (ptrShift) {
+      const pointer = this.state.pointers.get(ptrShift[1]);
+      if (!pointer) throw new Error(`Undefined pointer: ${ptrShift[1]}`);
+      if (pointer.address == null) throw new Error(`Pointer '${ptrShift[1]}' is free and cannot be shifted.`);
+      pointer.address += Number(ptrShift[2]);
       return;
     }
 

@@ -63,3 +63,22 @@ fn index_requires_integer_expression() {
     let err = execute_program("[xs]=l(i)<^1^,^2^>:[v]=[xs]@^1.5^", &mut state).expect_err("index should fail");
     assert!(err.message.contains("integer"));
 }
+
+#[test]
+fn typed_list_allows_matrix_elements() {
+    let mut state = MorganicState::default();
+    execute_program("[mylist]=l(m)<m<0,1,2><3,1,5>,m<4,2,5><5,6,3>>", &mut state)
+        .expect("matrix list should parse");
+    assert_eq!(state.types.get("mylist").map(String::as_str), Some("l(m)"));
+}
+
+#[test]
+fn pointer_buffer_and_dereference_work() {
+    let mut state = MorganicState::default();
+    execute_program(
+        "++buffer==[0x48 0x65 0x6C 0x6C 0x6F]:buffer+-0:+buffer+1:-buffer>>2:[x]=--buffer",
+        &mut state,
+    )
+    .expect("pointer ops should execute");
+    assert_eq!(state.env.get("x"), Some(&Value::Int(108)));
+}

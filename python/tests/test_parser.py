@@ -195,3 +195,16 @@ def test_enum_assignment_rejects_unknown_member() -> None:
     with pytest.raises(MorganicError) as exc:
         execute_program('"direction"=north¬south:[mydir]="direction"west', state)
     assert "Unknown enum member" in str(exc.value)
+
+
+def test_typed_list_allows_matrix_elements() -> None:
+    state = MorganicState()
+    execute_program("[mylist]=l(m)<m<0,1,2><3,1,5>,m<4,2,5><5,6,3>>", state)
+    assert state.types["mylist"] == "l(m)"
+    assert len(state.env["mylist"]) == 2
+
+
+def test_pointer_byte_buffer_and_dereference() -> None:
+    state = MorganicState()
+    execute_program("++buffer==[0x48 0x65 0x6C 0x6C 0x6F]:buffer+-1:[x]=--buffer", state)
+    assert state.env["x"] == 101
