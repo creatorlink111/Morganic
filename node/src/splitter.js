@@ -1,14 +1,21 @@
 function stripComments(source) {
   let out = '';
   let i = 0;
+  let inArithmetic = false;
   while (i < source.length) {
-    if (source.startsWith('%%', i)) {
+    if (source[i] === '|') {
+      inArithmetic = !inArithmetic;
+      out += source[i];
+      i += 1;
+      continue;
+    }
+    if (!inArithmetic && source.startsWith('%%', i)) {
       const end = source.indexOf('%', i + 2);
       if (end === -1) break;
       i = end + 1;
       continue;
     }
-    if (source[i] === '%' && !source.startsWith('%%', i)) {
+    if (!inArithmetic && source[i] === '%' && !source.startsWith('%%', i)) {
       const end = source.indexOf('\n', i);
       if (end === -1) break;
       i = end + 1;

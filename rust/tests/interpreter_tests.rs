@@ -82,3 +82,28 @@ fn pointer_buffer_and_dereference_work() {
     .expect("pointer ops should execute");
     assert_eq!(state.env.get("x"), Some(&Value::Int(108)));
 }
+
+#[test]
+fn modulo_inside_arithmetic_is_not_treated_as_comment() {
+    let mut state = MorganicState::default();
+    execute_program("[a]=^7^:[b]=^3^:[m]=|`a%`b|", &mut state).expect("program should execute");
+    assert_eq!(state.env.get("m"), Some(&Value::Int(1)));
+}
+
+#[test]
+fn coord_literal_parses_in_typed_coord_list() {
+    let mut state = MorganicState::default();
+    execute_program("[pts]=l(c)<(0,1),(2,3)>", &mut state).expect("coord list should parse");
+    assert_eq!(state.types.get("pts").map(String::as_str), Some("l(c)"));
+}
+
+#[test]
+fn foreach_loop_binds_reference_variable() {
+    let mut state = MorganicState::default();
+    execute_program(
+        "[items]=l(i)<^1^,^2^,^3^>:[sum]=^0^:4(v,_[items]){[cur]=&v:[sum]=|`sum+`cur|}",
+        &mut state,
+    )
+        .expect("foreach loop should execute");
+    assert_eq!(state.env.get("sum"), Some(&Value::Int(6)));
+}
