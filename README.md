@@ -375,12 +375,8 @@ Create an instance (star constructor form):
 ```text
 [p]=*Point{x=^5^}
 ```
-
-Create an instance (dot constructor form):
-
-```text
-[q]=.Point.x:^9^,y:^4^
-```
+Plot:
+`0.1(0&10,0&10){[p]$c}` *TODO: Fix*
 
 #### Constructor logic, step-by-step
 
