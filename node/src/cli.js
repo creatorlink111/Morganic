@@ -8,19 +8,25 @@ const { Parser } = require('./parser');
 
 const IMPORT_PATTERN = /@([A-Za-z0-9_./\\-]+\.(?:morgan|elemens))@/g;
 
+function candidateImportPaths(rawRef, baseDir) {
+  const ref = rawRef.trim();
+  const candidates = [path.resolve(baseDir, ref)];
+  if (!ref.includes('/') && !ref.includes('\\')) {
+    const projectRoot = path.resolve(__dirname, '..', '..');
+    candidates.push(path.resolve(projectRoot, ref));
+    candidates.push(path.resolve(projectRoot, 'std', ref));
+  }
+  return [...new Set(candidates)];
+}
+
 function resolveModuleImports(source, baseDir, stack = []) {
   return source.replace(IMPORT_PATTERN, (_, rawRef) => {
-    const ref = rawRef.trim();
-    const target = path.resolve(baseDir, ref);
+    const target = candidateImportPaths(rawRef, baseDir).find((candidate) => fs.existsSync(candidate));
+    if (!target) throw new Error(`Import file not found: ${rawRef}`);
     if (!['.morgan', '.elemens'].includes(path.extname(target))) {
-      throw new Error(`Unsupported import file type: ${ref}`);
+      throw new Error(`Unsupported import file type: ${rawRef}`);
     }
-    if (!fs.existsSync(target)) {
-      throw new Error(`Import file not found: ${ref}`);
-    }
-    if (stack.includes(target)) {
-      throw new Error(`Circular module import detected: ${[...stack, target].join(' -> ')}`);
-    }
+    if (stack.includes(target)) throw new Error(`Circular module import detected: ${[...stack, target].join(' -> ')}`);
     const nested = fs.readFileSync(target, 'utf8');
     return resolveModuleImports(nested, path.dirname(target), [...stack, target]);
   });
@@ -58,7 +64,7 @@ async function repl(parser) {
     const line = await rl.question('>>> ');
     if (line.trim() === ':quit') break;
     try {
-      await parser.execute(line);
+      await parser.execute(resolveModuleImports(line, process.cwd()));
     } catch (error) {
       console.error(`Error: ${error.message}`);
     }
