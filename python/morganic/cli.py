@@ -6,6 +6,7 @@ import argparse
 import atexit
 import re
 import sys
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -181,19 +182,57 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 IMPORT_PATTERN = re.compile(r"@([A-Za-z0-9_./\\-]+\.(?:morgan|elemens))@")
 
 
+def _project_root_from(base_dir: Path) -> Path:
+    """Walk upward to locate repository root (contains README.md + runtime dirs)."""
+    current = base_dir.resolve()
+    for candidate in (current, *current.parents):
+        if (candidate / "README.md").is_file() and (candidate / "rust").is_dir() and (candidate / "python").is_dir():
+            return candidate
+    return current
+
+
+def _candidate_import_paths(raw_ref: str, base_dir: Path) -> tuple[Path, ...]:
+    """Resolve import path candidates, including repo-level standard modules for bare names."""
+    token = raw_ref.strip()
+    ref_path = Path(token)
+    candidates: list[Path] = [(base_dir / ref_path).resolve()]
+    is_bare = not ref_path.is_absolute() and len(ref_path.parts) == 1
+    if is_bare:
+        project_root = _project_root_from(base_dir)
+        candidates.append((project_root / ref_path.name).resolve())
+        candidates.append((project_root / "std" / ref_path.name).resolve())
+    seen: set[Path] = set()
+    deduped: list[Path] = []
+    for path in candidates:
+        if path not in seen:
+            deduped.append(path)
+            seen.add(path)
+    return tuple(deduped)
+
+
+@lru_cache(maxsize=1024)
+def _read_text_cached(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
 def _resolve_module_imports(source: str, base_dir: Path, stack: tuple[Path, ...] = ()) -> str:
     """Inline module imports using `@file.morgan@` / `@file.elemens@` syntax."""
     def replace(match: re.Match[str]) -> str:
         raw_ref = match.group(1).strip()
-        target = (base_dir / raw_ref).resolve()
-        if target.suffix not in {".morgan", ".elemens"}:
-            raise MorganicError(f"Unsupported import file type: {raw_ref}")
-        if not target.is_file():
+        target: Path | None = None
+        for candidate in _candidate_import_paths(raw_ref, base_dir):
+            if candidate.suffix in {".morgan", ".elemens"} and candidate.is_file():
+                target = candidate
+                break
+        if target is None:
+            suffix = Path(raw_ref).suffix
+            if suffix not in {".morgan", ".elemens"}:
+                raise MorganicError(f"Unsupported import file type: {raw_ref}")
             raise MorganicError(f"Import file not found: {raw_ref}")
         if target in stack:
             chain = " -> ".join(str(p) for p in (*stack, target))
             raise MorganicError(f"Circular module import detected: {chain}")
-        nested = target.read_text(encoding="utf-8")
+        nested = _read_text_cached(target)
         return _resolve_module_imports(nested, target.parent, (*stack, target))
 
     return IMPORT_PATTERN.sub(replace, source)

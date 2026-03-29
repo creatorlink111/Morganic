@@ -19,7 +19,7 @@ npm run start -- -c "[a]=^3^:[b]=^4^:1(|`a+`b|)"
 File execution:
 
 ```bash
-npm run start -- ../example_script.elemens
+npm run start -- ../scicons.morgan
 ```
 
 ## Implemented language features

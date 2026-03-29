@@ -1,15 +1,14 @@
 # Morganic x64 Assembly Runtime
 
-This directory now contains a Linux x86_64 assembly **launcher runtime** with full Morganic language parity by forwarding execution to the Python reference runtime.
+This directory contains a Linux x86_64 assembly runtime launcher that executes a sibling native `morganic-rs` binary.
 
 Execution model:
 
-- The assembly binary builds an argv list for:
-  - `/usr/bin/env python3 -m morganic <original args...>`
-- It preserves the current process environment.
-- The provided `Makefile` sets `PYTHONPATH=../python` so local development uses this repository's Python runtime.
+- `morganic-asm` is a pure x64 assembly entrypoint.
+- It executes `./morganic-rs` directly with all original CLI args and the same environment.
+- `make` builds Rust release runtime first, then assembles/links the launcher.
 
-This keeps the x64 entrypoint implemented in assembly while ensuring complete feature parity and behavior consistency with the canonical interpreter.
+This removes the Python dependency from the assembly runtime path.
 
 ## Build and run
 
@@ -28,8 +27,11 @@ make check
 
 ```bash
 # Inline code
-PYTHONPATH=../python ./morganic-asm -c "[x]=^21^:1(|`x*2|)"
+./morganic-asm -c "[x]=^21^:1(|`x*2|)"
 
 # Script file
-PYTHONPATH=../python ./morganic-asm ../example_script.elemens
+./morganic-asm "../example programs/program_pack_index.elemens"
+
+# Import standard scientific constants module
+./morganic-asm -c "@scicons.morgan@:[g]=[SCI_GRAVITY_MPS2]:1([g])"
 ```
