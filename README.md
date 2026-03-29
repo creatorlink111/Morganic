@@ -9,6 +9,7 @@ Clone this repository and pick the runtime you want:
 - `rust/` → production-ready Rust runtime (stable parity target with Python)
 - `node/` → production-ready Node.js runtime (stable parity target with Python)
 - `asm-x64/` → x64 assembly launcher runtime that executes the native Rust runtime (no Python dependency)
+- `compiler/` → standalone compiler driver that emits native binaries from `.elemens`/`.morgan` programs
 
 ## Requirements
 
@@ -98,6 +99,16 @@ cargo test
 `.morgan` module files are importable from all runtimes with `@path/to/module.morgan@`.
 
 Standard repo modules can also be imported by bare name without a path (for example `@scicons.morgan@`).
+
+## Morganic compiler (`compiler/`)
+
+Compile a source file into a native executable:
+
+```bash
+cd compiler
+cargo run -- ../example\ programs/input_cli_calculator.elemens -o ../calculator
+../calculator
+```
 
 ## x64 assembly runtime (`asm-x64/`)
 
