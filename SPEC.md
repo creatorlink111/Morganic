@@ -34,7 +34,7 @@ Identifier grammar:
 
 - Numeric literal: `^...^` (integer or float payload)
 - String-like text literal: `£...` (up to statement/field delimiter context)
-- Booleans are represented via typed values in runtime state (printed as `true/false` in diagnostics where applicable).
+- Booleans are represented via typed values in runtime state (`/` for true, `\` for false, printed as `true/false` in diagnostics where applicable).
 
 ## 3. Imports and modules
 
@@ -66,14 +66,14 @@ Identifier grammar:
 
 ### 4.3 Input
 
-- Form: `0([name])`
+- Form: `[name]=;(£Enter your name):`
 - Reads a line from stdin and stores it in `[name]`.
 
 ### 4.4 Conditionals
 
 - If: `2(<cond>){ <statements> }`
-- Else-if: `2?(<cond>){ <statements> }`
-- Else: `2!{ <statements> }`
+- Else-if: `2?(<cond>){ <statements> }` (unimplemented as of 1.0.1)
+- Else: `2!{ <statements> }` (unimplemented as of 1.0.1)
 
 Evaluation is ordered: first true branch executes; else branch executes if no condition matched.
 
@@ -116,6 +116,8 @@ Documented primitive families include:
 - Floating point: `f`
 - Text/string: `s`
 - Boolean: `b`
+- List: `l(<type>)`
+- Matrix: `m`
 
 Exact cast syntax and edge behavior are parser/runtime-defined and should stay compatible with README examples and test corpus.
 
@@ -125,8 +127,7 @@ Morganic supports enum declarations and assignment syntax (quoted style), includ
 
 Canonical module constant style:
 
-- `[ENUM_NAME]=^value^:` for numeric constants
-- String constants via `£...`
+**Removed this syntax example due to AI Hallucinatons. See README for proper syntax example.**
 
 ## 8. Error model
 
