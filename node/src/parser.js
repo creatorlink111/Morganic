@@ -25,24 +25,92 @@ function annotateListType(list, typeCode) {
 }
 
 function parsePairs(text) {
-  const matches = [...text.matchAll(/\((-?\d+),(-?\d+)\)/g)];
+  const matches = [...text.matchAll(/\(\s*([+-]?\d+)\s*,\s*([+-]?\d+)\s*\)/g)];
   return matches.map((m) => [Number(m[1]), Number(m[2])]);
 }
 
 function renderGraph(points, xMin = -10, xMax = 10, yMin = -10, yMax = 10, labelStep = 0) {
-  const width = xMax - xMin + 1;
-  const height = yMax - yMin + 1;
+  if (xMin >= xMax) throw new Error(`x-axis min must be less than max: ${xMin}&${xMax}`);
+  if (yMin >= yMax) throw new Error(`y-axis min must be less than max: ${yMin}&${yMax}`);
+  if (labelStep < 0) throw new Error('Graph label interval must be positive.');
+
+  const xScale = 2;
+  const leftMargin = labelStep > 0 ? 5 : 0;
+  const bottomMargin = labelStep > 0 ? 2 : 0;
+  const plotWidth = (xMax - xMin) * xScale + 1;
+  const plotHeight = yMax - yMin + 1;
+  const width = leftMargin + plotWidth;
+  const height = plotHeight + bottomMargin;
   const grid = Array.from({ length: height }, () => Array.from({ length: width }, () => ' '));
-  for (let x = xMin; x <= xMax; x += 1) if (0 >= yMin && 0 <= yMax) grid[yMax][x - xMin] = '-';
-  for (let y = yMin; y <= yMax; y += 1) if (0 >= xMin && 0 <= xMax) grid[yMax - y][0 - xMin] = '|';
-  if (0 >= xMin && 0 <= xMax && 0 >= yMin && 0 <= yMax) grid[yMax][0 - xMin] = '+';
-  for (const [x, y] of points) if (x >= xMin && x <= xMax && y >= yMin && y <= yMax) grid[yMax - y][x - xMin] = '*';
-  const lines = grid.map((r) => r.join(''));
-  if (labelStep > 0) {
-    lines.push(`x labels: ${xMin}..${xMax} step=${labelStep}`);
-    lines.push(`y labels: ${yMin}..${yMax} step=${labelStep}`);
+
+  const toGridCoords = (x, y) => [leftMargin + (x - xMin) * xScale, yMax - y];
+
+  if (xMin <= 0 && xMax >= 0) {
+    const [axisX] = toGridCoords(0, 0);
+    for (let row = 0; row < plotHeight; row += 1) grid[row][axisX] = '│';
   }
-  return lines.join('\n');
+  if (yMin <= 0 && yMax >= 0) {
+    const [, axisY] = toGridCoords(0, 0);
+    for (let col = 0; col < width; col += 1) grid[axisY][col] = '─';
+  }
+  if (xMin <= 0 && xMax >= 0 && yMin <= 0 && yMax >= 0) {
+    const [axisX, axisY] = toGridCoords(0, 0);
+    grid[axisY][axisX] = '┼';
+  }
+
+  for (const [x, y] of points) {
+    if (x < xMin || x > xMax || y < yMin || y > yMax) {
+      throw new Error(`Point (${x},${y}) is outside graph range x[${xMin},${xMax}] y[${yMin},${yMax}].`);
+    }
+    const [gx, gy] = toGridCoords(x, y);
+    grid[gy][gx] = '●';
+  }
+
+  if (xMin <= 0 && xMax >= 0 && labelStep === 0) {
+    const [axisX] = toGridCoords(0, 0);
+    if (grid[0][axisX] === ' ') grid[0][axisX] = 'y';
+    else if (axisX + 1 < width && grid[0][axisX + 1] === ' ') grid[0][axisX + 1] = 'y';
+  }
+  if (yMin <= 0 && yMax >= 0 && labelStep === 0) {
+    const [, axisY] = toGridCoords(0, 0);
+    grid[axisY][width - 1] = 'x';
+  }
+
+  if (labelStep > 0) {
+    if (yMin <= 0 && yMax >= 0) {
+      const xLabelRow = Math.min(plotHeight, height - 1);
+      for (let x = xMin; x <= xMax; x += 1) {
+        if (x % labelStep !== 0) continue;
+        const [gx] = toGridCoords(x, 0);
+        const label = String(x);
+        const start = gx - Math.floor(label.length / 2);
+        if (start >= 0 && start + label.length <= width) {
+          for (let i = 0; i < label.length; i += 1) grid[xLabelRow][start + i] = label[i];
+        }
+      }
+    }
+    if (xMin <= 0 && xMax >= 0) {
+      const [axisX] = toGridCoords(0, 0);
+      for (let y = yMin; y <= yMax; y += 1) {
+        if (y % labelStep !== 0) continue;
+        const [, gy] = toGridCoords(0, y);
+        const label = String(y).padStart(leftMargin - 1, ' ');
+        for (let i = 0; i < label.length; i += 1) if (i < axisX) grid[gy][i] = label[i];
+      }
+    }
+  }
+  return grid.map((row) => row.join('').replace(/\s+$/g, '')).join('\n');
+}
+
+function coerceGraphPoints(points) {
+  if (!Array.isArray(points)) throw new Error('Graph points must be pairs, l(c), or m.');
+  if (points.length === 0) throw new Error('Graph requires at least one point like {(0,0)}.');
+  return points.map((item) => {
+    if (!Array.isArray(item) || item.length !== 2) throw new Error('Graph points must be 2D coordinate pairs.');
+    const [x, y] = item;
+    if (!Number.isInteger(x) || !Number.isInteger(y)) throw new Error('Graph coordinates must be integer pairs.');
+    return [x, y];
+  });
 }
 
 function splitTopLevelOperator(text, operator) {
@@ -401,7 +469,12 @@ class Parser {
     const graph = s.match(/^0(?:\.(\d+))?(?:\((-?\d+)&(-?\d+),(-?\d+)&(-?\d+)\))?\{(.*)\}$/s);
     if (graph) {
       const payload = graph[6].trim();
-      const points = payload.startsWith('[') ? this.readVar(payload.slice(1, -1)) : parsePairs(payload);
+      const literalPoints = parsePairs(payload);
+      const normalizedLiteral = literalPoints.map(([x, y]) => `(${x},${y})`).join('');
+      const compactPayload = payload.replace(/\s+/g, '');
+      const points = compactPayload === normalizedLiteral
+        ? literalPoints
+        : coerceGraphPoints(await this.evaluateValue(payload));
       console.log(
         renderGraph(
           points,

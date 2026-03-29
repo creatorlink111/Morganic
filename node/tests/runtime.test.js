@@ -38,8 +38,8 @@ test('graph label mode adds axis label information', async () => {
     console.log = originalLog;
   }
   const joined = output.join('\n');
-  assert.match(joined, /x labels:/);
-  assert.match(joined, /y labels:/);
+  assert.match(joined, /●/);
+  assert.match(joined, /-1 0 1/);
 });
 
 test('typed list allows matrix elements', async () => {

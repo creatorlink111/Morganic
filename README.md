@@ -89,6 +89,12 @@ cargo run -- -c "[a]=^3^:[b]=^4^:1(|`a+`b|)"
 cargo test
 ```
 
+### `.elemens` scripts vs `.morgan` modules
+
+- **`.elemens`**: entrypoint scripts/programs you run directly (`python -m morganic my_program.elemens`, `npm run start -- my_program.elemens`).
+- **`.morgan`**: reusable library modules intended to be imported into `.elemens` scripts (or other modules) via `@module_name.morgan@`.
+- You *can* import either extension with `@...@`, but keeping reusable code in `.morgan` and runnable programs in `.elemens` keeps projects organized and cross-runtime consistent.
+
 `.morgan` module files are importable from all runtimes with `@path/to/module.morgan@`.
 
 Standard repo modules can also be imported by bare name without a path (for example `@scicons.morgan@`).
