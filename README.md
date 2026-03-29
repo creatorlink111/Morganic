@@ -8,13 +8,13 @@ Clone this repository and pick the runtime you want:
 - `python/` → reference runtime and language baseline
 - `rust/` → production-ready Rust runtime (stable parity target with Python)
 - `node/` → production-ready Node.js runtime (stable parity target with Python)
-- `asm-x64/` → x64 assembly launcher runtime with full language parity via the Python reference interpreter
+- `asm-x64/` → x64 assembly launcher runtime that executes the native Rust runtime (no Python dependency)
 
 ## Requirements
 
 - Python **3.10+** for the Python runtime
 - Rust toolchain (`cargo`) for the Rust runtime
-- NASM + x64 Linux linker tools (only for the experimental `asm-x64/` prototype)
+- NASM + x64 Linux linker tools (for the `asm-x64/` runtime)
 - Optional (Python): `prompt_toolkit` for richer REPL highlighting
 
 ## Python setup (`python/`)
@@ -44,7 +44,7 @@ Run source file:
 
 ```bash
 cd python
-python -m morganic ../example_script.elemens
+python -m morganic ../scicons.morgan
 ```
 
 Import modules in source or inline code:
@@ -79,7 +79,7 @@ Run source file:
 
 ```bash
 cd node
-npm run start -- ../example_script.elemens
+npm run start -- ../scicons.morgan
 ```
 
 ## Rust setup (`rust/`)
@@ -91,16 +91,18 @@ cargo test
 
 `.morgan` module files are importable from all runtimes with `@path/to/module.morgan@`.
 
+Standard repo modules can also be imported by bare name without a path (for example `@scicons.morgan@`).
+
 ## x64 assembly runtime (`asm-x64/`)
 
-The `asm-x64/` folder contains a Linux x86_64 assembly runtime entrypoint that delegates into the Python reference interpreter for full language parity:
+The `asm-x64/` folder contains a Linux x86_64 assembly runtime entrypoint that directly executes a sibling native Rust runtime binary (`./morganic-rs`):
 
 ```bash
 cd asm-x64
 make run
 ```
 
-Internally this executes `/usr/bin/env python3 -m morganic ...` and uses `PYTHONPATH=../python` in the provided Makefile.
+No Python is required in this runtime path.
 
 ---
 

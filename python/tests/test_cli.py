@@ -14,3 +14,9 @@ def test_module_import_resolution(tmp_path: Path) -> None:
     module.write_text("[x]=^9^:", encoding="utf-8")
     resolved = _resolve_module_imports("@defaults.morgan@:[y]=[x]", tmp_path)
     assert "[x]=^9^:" in resolved
+
+
+def test_standard_module_resolution_from_repo_root() -> None:
+    nested = Path(__file__).resolve().parent
+    resolved = _resolve_module_imports("@scicons.morgan@:[v]=[SCI_PI]", nested)
+    assert "[SCI_PI]=^3.141592653589793^:" in resolved

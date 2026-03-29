@@ -1,11 +1,10 @@
-; Morganic x64 assembly launcher runtime
+; Morganic x64 assembly runtime launcher
 ; Target: Linux x86_64
 ;
-; This binary provides full language parity by delegating execution to
-; the Python reference runtime through:
-;   /usr/bin/env python3 -m morganic <args...>
+; This binary stays entirely in native x64 assembly and executes the
+; repository's native Rust runtime binary (no Python dependency).
 ;
-; The Makefile sets PYTHONPATH=../python so the local package is resolved.
+; Expected sibling binary: ./morganic-rs
 
 %define SYS_write 1
 %define SYS_execve 59
@@ -18,13 +17,10 @@
 global _start
 
 section .rodata
-    path_env db "/usr/bin/env", 0
-    arg_env db "env", 0
-    arg_python3 db "python3", 0
-    arg_dash_m db "-m", 0
-    arg_morganic db "morganic", 0
+    path_runtime db "./morganic-rs", 0
+    arg_runtime db "morganic-rs", 0
 
-    exec_failed_msg db "morganic-asm: failed to exec /usr/bin/env python3 -m morganic", 10
+    exec_failed_msg db "morganic-asm: failed to exec ./morganic-rs", 10
     exec_failed_msg_len equ $ - exec_failed_msg
 
 section .bss
@@ -44,20 +40,17 @@ _start:
     ; envp = &argv[argc + 1]
     lea r13, [r12 + rbx*8 + 8]
 
-    ; Basic safety guard against pathological arg counts.
-    cmp rbx, MAX_ARGV_PTRS - 4
+    ; Guard against pathological arg counts.
+    cmp rbx, MAX_ARGV_PTRS - 1
     jle .build_argv
-    mov rbx, MAX_ARGV_PTRS - 4
+    mov rbx, MAX_ARGV_PTRS - 1
 
 .build_argv:
-    ; Prefix argv for /usr/bin/env python3 -m morganic
-    mov qword [new_argv + 0*8], arg_env
-    mov qword [new_argv + 1*8], arg_python3
-    mov qword [new_argv + 2*8], arg_dash_m
-    mov qword [new_argv + 3*8], arg_morganic
+    ; argv[0] for child runtime
+    mov qword [new_argv + 0*8], arg_runtime
 
     ; Copy caller arguments except original argv[0].
-    ; for i in [1, argc): new_argv[i + 3] = argv[i]
+    ; for i in [1, argc): new_argv[i] = argv[i]
     xor rcx, rcx
 .copy_loop:
     inc rcx
@@ -65,17 +58,16 @@ _start:
     jge .copy_done
 
     mov rax, [r12 + rcx*8]         ; argv[i]
-    mov [new_argv + rcx*8 + 24], rax
+    mov [new_argv + rcx*8], rax
     jmp .copy_loop
 
 .copy_done:
-    ; new argc = argc + 3, terminate argv with NULL
-    lea rdx, [rbx + 3]
-    mov qword [new_argv + rdx*8], 0
+    ; terminate argv with NULL
+    mov qword [new_argv + rbx*8], 0
 
-    ; execve("/usr/bin/env", new_argv, envp)
+    ; execve("./morganic-rs", new_argv, envp)
     mov rax, SYS_execve
-    mov rdi, path_env
+    mov rdi, path_runtime
     mov rsi, new_argv
     mov rdx, r13
     syscall
