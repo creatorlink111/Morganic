@@ -9,7 +9,7 @@ Clone this repository and pick the runtime you want:
 - `rust/` → production-ready Rust runtime (stable parity target with Python)
 - `node/` → production-ready Node.js runtime (stable parity target with Python)
 - `asm-x64/` → x64 assembly launcher runtime that executes the native Rust runtime (no Python dependency)
-- `compiler/` → standalone compiler driver that emits native binaries from `.elemens`/`.morgan` programs
+- `compiler/` → standalone compiler driver that emits native binaries from `.elemens` programs
 
 ## Requirements
 
@@ -41,11 +41,11 @@ cd python
 python -m morganic -c "[a]=^3^:[b]=^4^:1(|`a+`b|)"
 ```
 
-Run source file:
+Run scipt file:
 
 ```bash
 cd python
-python -m morganic ../scicons.morgan
+python -m morganic ../myscipt.elemens
 ```
 
 Import modules in source or inline code:
