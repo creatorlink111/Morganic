@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from morganic.cli import _needs_more_input, _resolve_module_imports
+from morganic.cli import _needs_more_input, _prepare_repl_source, _resolve_module_imports
 
 
 def test_trailing_colon_does_not_force_multiline_repl() -> None:
@@ -20,3 +20,9 @@ def test_standard_module_resolution_from_repo_root() -> None:
     nested = Path(__file__).resolve().parent
     resolved = _resolve_module_imports("@scicons.morgan@:[v]=[SCI_PI]", nested)
     assert "[SCI_PI]=^3.141592653589793^:" in resolved
+
+
+def test_repl_source_preparation_resolves_imports() -> None:
+    nested = Path(__file__).resolve().parent
+    prepared = _prepare_repl_source("@scicons.morgan@:[v]=[SCI_TAU]", nested)
+    assert "[SCI_TAU]=^6.283185307179586^:" in prepared

@@ -18,23 +18,30 @@ from .errors import MorganicError
 
 RESET = "\033[0m"
 COLORS = {
-    "var": "\033[32m",
-    "func": "\033[35m",
-    "builtin": "\033[36m",
-    "comment": "\033[90m",
-    "string": "\033[33m",
-    "plain": "\033[37m",
+    "var": "\033[38;5;120m",
+    "func": "\033[38;5;213m",
+    "builtin": "\033[38;5;81m",
+    "comment": "\033[38;5;244m",
+    "string": "\033[38;5;221m",
+    "number": "\033[38;5;214m",
+    "operator": "\033[38;5;45m",
+    "import": "\033[38;5;39m",
+    "plain": "\033[38;5;252m",
 }
 
 
 def colorize_source_line(line: str) -> str:
     """Apply simple ANSI syntax coloring for a source line."""
     patterns = [
+        (r"(@[A-Za-z0-9_./\\-]+\.(?:morgan|elemens)@)", "import"),
         (r"(%%.*?%|%.*$)", "comment"),
         (r"(£[^\n:]*)", "string"),
         (r"(#[A-Za-z_][A-Za-z0-9_]*)", "func"),
+        (r"(\^[+-]?(?:\d+(?:\.\d+)?|\.\d+)\^)", "number"),
         (r"(\[[A-Za-z_][A-Za-z0-9_]*\]|`[A-Za-z_][A-Za-z0-9_]*|&[A-Za-z_][A-Za-z0-9_]*)", "var"),
+        (r"(\|\s*[^|]+\s*\|)", "number"),
         (r"(\b[0-4]\(\)|\b[0-4]\()", "builtin"),
+        (r"([:=+\-*/%<>{}(),.])", "operator"),
     ]
     result = line
     for pattern, key in patterns:
@@ -72,11 +79,15 @@ def _read_repl_line(prompt: str) -> str:
 
                     spans: list[tuple[str, str]] = []
                     patterns = [
+                        (r"@[A-Za-z0-9_./\\-]+\.(?:morgan|elemens)@", "class:import"),
                         (r"%%.*?%|%.*$", "class:comment"),
                         (r"£[^\n:]*", "class:string"),
                         (r"#[A-Za-z_][A-Za-z0-9_]*", "class:func"),
+                        (r"\^[+-]?(?:\d+(?:\.\d+)?|\.\d+)\^", "class:number"),
                         (r"\[[A-Za-z_][A-Za-z0-9_]*\]|`[A-Za-z_][A-Za-z0-9_]*|&[A-Za-z_][A-Za-z0-9_]*", "class:var"),
+                        (r"\|\s*[^|]+\s*\|", "class:number"),
                         (r"\b[0-4]\(\)|\b[0-4]\(", "class:builtin"),
+                        (r"[:=+\-*/%<>{}(),.]", "class:operator"),
                     ]
 
                     i = 0
@@ -105,6 +116,9 @@ def _read_repl_line(prompt: str) -> str:
                 "func": "ansimagenta",
                 "var": "ansigreen",
                 "builtin": "ansicyan",
+                "number": "ansibrightyellow",
+                "operator": "ansibrightcyan",
+                "import": "ansiblue",
             }
         )
         session = PromptSession()
@@ -156,9 +170,10 @@ def repl() -> None:
             line = _read_repl_statement()
             if not line.strip():
                 continue
-            if try_eval_and_print_inline_expression(line, state):
+            source = _prepare_repl_source(line, Path.cwd())
+            if try_eval_and_print_inline_expression(source, state):
                 continue
-            execute_program(line, state)
+            execute_program(source, state)
         except EOFError:
             print("\nExiting...")
             break
@@ -167,6 +182,11 @@ def repl() -> None:
             continue
         except MorganicError as e:
             print(f"Error: {e}")
+
+
+def _prepare_repl_source(line: str, base_dir: Path) -> str:
+    """Resolve imports for REPL input before execution."""
+    return _resolve_module_imports(line, base_dir)
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
