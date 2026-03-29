@@ -8,7 +8,7 @@ Clone this repository and pick the runtime you want:
 - `python/` → reference runtime and language baseline
 - `rust/` → production-ready Rust runtime (stable parity target with Python)
 - `node/` → production-ready Node.js runtime (stable parity target with Python)
-- `asm-x64/` → **very experimental** x64 assembly runtime prototype (not feature-complete)
+- `asm-x64/` → x64 assembly launcher runtime with full language parity via the Python reference interpreter
 
 ## Requirements
 
@@ -91,14 +91,16 @@ cargo test
 
 `.morgan` module files are importable from all runtimes with `@path/to/module.morgan@`.
 
-## Very experimental x64 assembly runtime (`asm-x64/`)
+## x64 assembly runtime (`asm-x64/`)
 
-The `asm-x64/` folder contains a **very experimental** rewrite in x64 assembly. It currently only demonstrates a tiny execution pipeline and is intentionally incomplete while the runtime architecture is explored.
+The `asm-x64/` folder contains a Linux x86_64 assembly runtime entrypoint that delegates into the Python reference interpreter for full language parity:
 
 ```bash
 cd asm-x64
 make run
 ```
+
+Internally this executes `/usr/bin/env python3 -m morganic ...` and uses `PYTHONPATH=../python` in the provided Makefile.
 
 ---
 

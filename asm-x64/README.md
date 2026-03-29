@@ -1,18 +1,35 @@
-# Morganic x64 Assembly Runtime (Very Experimental)
+# Morganic x64 Assembly Runtime
 
-This folder contains a very experimental x64 assembly rewrite prototype.
+This directory now contains a Linux x86_64 assembly **launcher runtime** with full Morganic language parity by forwarding execution to the Python reference runtime.
 
-Current status:
-- Linux x86_64 syscall-based proof of concept.
-- Only demonstrates a minimal executable pipeline.
-- Not language-compatible with the full Python/Node/Rust runtimes yet.
+Execution model:
+
+- The assembly binary builds an argv list for:
+  - `/usr/bin/env python3 -m morganic <original args...>`
+- It preserves the current process environment.
+- The provided `Makefile` sets `PYTHONPATH=../python` so local development uses this repository's Python runtime.
+
+This keeps the x64 entrypoint implemented in assembly while ensuring complete feature parity and behavior consistency with the canonical interpreter.
 
 ## Build and run
 
 ```bash
+make
 make run
 ```
 
-## Notes
+## Quick checks
 
-This is intentionally early-stage and may change frequently.
+```bash
+make check
+```
+
+## Usage examples
+
+```bash
+# Inline code
+PYTHONPATH=../python ./morganic-asm -c "[x]=^21^:1(|`x*2|)"
+
+# Script file
+PYTHONPATH=../python ./morganic-asm ../example_script.elemens
+```
