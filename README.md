@@ -3,7 +3,7 @@
 Morganic is a compact, quirky, statement-oriented toy language with symbolic syntax and `:` as its top-level statement separator, and scripting with `.elemens` and reusable module `.morgan` extensions.
 
 ## Installation
-Clone this repository and pick the runtime you want:
+Just download ts or clone it or smth idk
 
 - `python/` → reference runtime and language baseline
 - `rust/` → production-ready Rust runtime (stable parity target with Python)
