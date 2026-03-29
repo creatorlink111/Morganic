@@ -12,7 +12,7 @@
 ## Medium term (1–3 months)
 
 - [ ] Add deterministic snapshot tests for terminal graph rendering to prevent regressions.
-- [ ] Implement a language spec file (`SPEC.md`) that defines grammar, runtime semantics, and error behavior.
+- [x] Implement a language spec file (`SPEC.md`) that defines grammar, runtime semantics, and error behavior.
 - [ ] Introduce a formatter / linter for Morganic source to normalize style and reduce syntax mistakes.
 - [ ] Add a benchmark harness that runs all runtimes on the same workloads and updates `website/benchmark-data.json`.
 - [ ] Build a first-party standard example suite (basic, intermediate, advanced) with expected outputs.
