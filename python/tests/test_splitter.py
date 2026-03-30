@@ -19,3 +19,9 @@ def test_splitter_keeps_constructor_field_colons_inside_statement() -> None:
 def test_splitter_keeps_modulo_inside_arithmetic() -> None:
     src = "[a]=^7^:[b]=^3^:[m]=|`a%`b|"
     assert strip_comments(src) == src
+
+
+def test_splitter_strips_pasted_repl_prompts() -> None:
+    chunks = split_statement_chunks(">>> [mylist]=l(b)</,\\,\\,\\>")
+    assert len(chunks) == 1
+    assert chunks[0].text == "[mylist]=l(b)</,\\,\\,\\>"
