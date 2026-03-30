@@ -363,6 +363,13 @@ fn parse_value_expr(expr: &str, state: &mut MorganicState) -> Result<(Value, Str
         }
     }
 
+    if let Some(s) = expr.strip_prefix("&£") {
+        return Ok((Value::Str(render_processed_string(s, state)?), "&£".to_string()));
+    }
+    if let Some(s) = expr.strip_prefix("&Â£") {
+        return Ok((Value::Str(render_processed_string(s, state)?), "&£".to_string()));
+    }
+
     if let Some(name) = expr.strip_prefix('&') {
         let ref_name = format!("&{name}");
         let v = get_var(state, &ref_name)?;
@@ -447,10 +454,6 @@ fn parse_value_expr(expr: &str, state: &mut MorganicState) -> Result<(Value, Str
 
     if expr == "/" || expr == "\\" {
         return Ok((Value::Bool(parse_bool_token(expr)?), "b".to_string()));
-    }
-
-    if let Some(s) = expr.strip_prefix("&£") {
-        return Ok((Value::Str(render_processed_string(s, state)?), "&£".to_string()));
     }
 
     if let Some(s) = expr.strip_prefix('£') {
