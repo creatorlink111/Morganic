@@ -34,6 +34,7 @@ Identifier grammar:
 
 - Numeric literal: `^...^` (integer or float payload)
 - String-like text literal: `£...` (up to statement/field delimiter context)
+- Processed string literal: `&£...` with `$$...` inline injections of self-delimiting value expressions such as `[name]` or `|...|`
 - Booleans are represented via typed values in runtime state (`/` for true, `\` for false, printed as `true/false` in diagnostics where applicable).
 
 ## 3. Imports and modules

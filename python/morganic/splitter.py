@@ -1,4 +1,4 @@
-"""Source pre-processing and statement splitting utilities."""
+﻿"""Source pre-processing and statement splitting utilities."""
 
 from __future__ import annotations
 
@@ -20,16 +20,23 @@ def strip_comments(source: str) -> str:
     i = 0
     n = len(source)
     in_arithmetic = False
+    in_sstring = False
     while i < n:
+        if source.startswith('££', i):
+            out.append('££')
+            in_sstring = not in_sstring
+            i += 2
+            continue
+
         ch = source[i]
 
-        if ch == '|':
+        if not in_sstring and ch == '|':
             in_arithmetic = not in_arithmetic
             out.append(ch)
             i += 1
             continue
 
-        if ch == '%' and not in_arithmetic:
+        if ch == '%' and not in_arithmetic and not in_sstring:
             nxt = source[i + 1] if i + 1 < n else ''
             if nxt == '%':
                 i += 2
@@ -56,13 +63,31 @@ def split_statement_chunks(source: str) -> list[StatementChunk]:
     buf: list[str] = []
     depth = {'(': 0, '[': 0, '{': 0, '<': 0}
     pairs = {'(': ')', '[': ']', '{': '}', '<': '>'}
+    in_sstring = False
 
     line = 1
     current_stmt_line = 1
 
-    for ch in source:
+    i = 0
+    while i < len(source):
+        if source.startswith('££', i):
+            if not buf:
+                current_stmt_line = line
+            buf.append('££')
+            in_sstring = not in_sstring
+            i += 2
+            continue
+
+        ch = source[i]
         if ch == '\n':
             line += 1
+
+        if in_sstring:
+            if not buf:
+                current_stmt_line = line
+            buf.append(ch)
+            i += 1
+            continue
 
         if ch in '([{<':
             depth[ch] += 1
@@ -84,6 +109,7 @@ def split_statement_chunks(source: str) -> list[StatementChunk]:
                 tail = ctor_match.group(1).split(',')[-1].strip()
                 if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", tail):
                     buf.append(ch)
+                    i += 1
                     continue
             part = ''.join(buf).strip()
             if part:
@@ -94,6 +120,7 @@ def split_statement_chunks(source: str) -> list[StatementChunk]:
             if not buf:
                 current_stmt_line = line
             buf.append(ch)
+        i += 1
 
     tail = ''.join(buf).strip()
     if tail:

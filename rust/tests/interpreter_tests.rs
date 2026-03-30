@@ -1,7 +1,55 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
 use morganic_rs::arithmetic::eval_arithmetic;
 use morganic_rs::parser::execute_program;
 use morganic_rs::splitter::split_statement_chunks;
 use morganic_rs::state::{MorganicState, Value};
+
+fn project_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root")
+        .to_path_buf()
+}
+
+fn graph_snapshot_dir() -> PathBuf {
+    project_root().join("graph_snapshots")
+}
+
+fn normalize(text: &str) -> String {
+    text.replace("\r\n", "\n")
+        .trim_start_matches('\u{feff}')
+        .trim_end_matches('\n')
+        .to_string()
+}
+
+fn read_fixture(path: &Path) -> String {
+    normalize(&fs::read_to_string(path).expect("fixture should be readable"))
+}
+
+fn graph_case_names() -> Vec<String> {
+    let mut names = fs::read_dir(graph_snapshot_dir())
+        .expect("graph snapshot dir should exist")
+        .filter_map(|entry| {
+            let path = entry.ok()?.path();
+            if path.extension()?.to_str()? != "elemens" {
+                return None;
+            }
+            Some(path.file_stem()?.to_str()?.to_string())
+        })
+        .collect::<Vec<_>>();
+    names.sort();
+    names
+}
+
+fn run_cli(source: &str) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_morganic-rs"))
+        .args(["-c", source])
+        .output()
+        .expect("morganic-rs binary should run")
+}
 
 #[test]
 fn assignment_and_arithmetic() {
@@ -104,6 +152,56 @@ fn foreach_loop_binds_reference_variable() {
         "[items]=l(i)<^1^,^2^,^3^>:[sum]=^0^:4(v,_[items]){[cur]=&v:[sum]=|`sum+`cur|}",
         &mut state,
     )
-        .expect("foreach loop should execute");
+    .expect("foreach loop should execute");
     assert_eq!(state.env.get("sum"), Some(&Value::Int(6)));
+}
+
+#[test]
+fn graph_output_snapshots_stay_stable() {
+    for case in graph_case_names() {
+        let source_path = graph_snapshot_dir().join(format!("{case}.elemens"));
+        let expected_path = graph_snapshot_dir().join(format!("{case}.out.txt"));
+        if !expected_path.exists() {
+            continue;
+        }
+        let source = read_fixture(&source_path);
+        let expected = read_fixture(&expected_path);
+        let output = run_cli(&source);
+        assert!(output.status.success(), "{case}: {}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(normalize(&String::from_utf8_lossy(&output.stdout)), expected, "{case}");
+    }
+}
+
+#[test]
+fn graph_error_snapshots_stay_stable() {
+    for case in graph_case_names() {
+        let source_path = graph_snapshot_dir().join(format!("{case}.elemens"));
+        let expected_path = graph_snapshot_dir().join(format!("{case}.err.txt"));
+        if !expected_path.exists() {
+            continue;
+        }
+        let source = read_fixture(&source_path);
+        let expected = read_fixture(&expected_path);
+        let output = run_cli(&source);
+        assert!(!output.status.success(), "{case}: expected failure");
+        let stderr = normalize(&String::from_utf8_lossy(&output.stderr));
+        assert!(stderr.contains(&expected), "{case}: {stderr}");
+    }
+}
+
+#[test]
+fn processed_string_injects_variables_and_expressions() {
+    let mut state = MorganicState::default();
+    execute_program("[name]=£Morgan:[msg]=&£hello $$[name], $$|10+8| total", &mut state)
+        .expect("processed string should execute");
+    assert_eq!(state.env.get("msg"), Some(&Value::Str("hello Morgan, 18 total".to_string())));
+    assert_eq!(state.types.get("msg").map(String::as_str), Some("&£"));
+}
+
+#[test]
+fn processed_string_type_query_returns_canonical_name() {
+    let mut state = MorganicState::default();
+    execute_program("[msg]=&£value=$$|10+8|:[kind]=\"[msg]", &mut state)
+        .expect("type query should execute");
+    assert_eq!(state.env.get("kind"), Some(&Value::Str("ProcessedString".to_string())));
 }

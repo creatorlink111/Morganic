@@ -142,6 +142,7 @@ function canonicalPrimitiveType(raw) {
   if (low === 'int' || low === 'integer') return 'i';
   if (low === 'float') return 'f';
   if (low === 'str' || low === 'string' || low === 's') return '£';
+  if (low === 'pstring' || low === 'processedstring' || low === 'processed_string') return '&£';
   if (low === 'matrix') return 'm';
   return token;
 }
@@ -152,6 +153,7 @@ function canonicalTypeName(typeCode) {
   if (typeCode === 'f') return 'Float';
   if (typeCode === 'i') return 'Integer';
   if (typeCode === '£') return 'String';
+  if (typeCode === '&£') return 'ProcessedString';
   if (/^i(?:2|4|8|16|32|64|128|256|512)$/.test(typeCode)) return `Integer${typeCode.slice(1)}`;
   if (typeCode === 'm') return 'MatrixCoords';
   if (typeCode === 'l(c)') return 'List<Coord>';
@@ -163,7 +165,7 @@ function canonicalTypeName(typeCode) {
 
 function isAllowedListElementType(typeCode) {
   const normalized = canonicalPrimitiveType(typeCode);
-  if (/^(?:£|b|f|c|m|i(?:2|4|8|16|32|64|128|256|512)?)$/.test(normalized)) return true;
+  if (/^(?:&£|£|b|f|c|m|i(?:2|4|8|16|32|64|128|256|512)?)$/.test(normalized)) return true;
   if (normalized.startsWith('l(') && normalized.endsWith(')')) {
     const inner = normalized.slice(2, -1).trim();
     return Boolean(inner) && isAllowedListElementType(inner);
@@ -176,6 +178,58 @@ function parsePointerAddress(raw) {
   if (/^[+-]?\d+$/.test(token)) return Number(token);
   if (/^0x[0-9a-f]+$/i.test(token)) return Number.parseInt(token, 16);
   throw new Error(`Invalid pointer address: ${raw}`);
+}
+
+
+function findMatchingDelimiter(text, start, openCh, closeCh) {
+  if (text[start] !== openCh) throw new Error(`Expected '${openCh}' at position ${start}.`);
+  if (openCh === closeCh) {
+    const end = text.indexOf(closeCh, start + 1);
+    if (end === -1) throw new Error(`Unterminated expression starting with ${openCh}.`);
+    return end;
+  }
+  let depth = 0;
+  for (let i = start; i < text.length; i += 1) {
+    if (text[i] === openCh) depth += 1;
+    else if (text[i] === closeCh) {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  throw new Error(`Unterminated expression starting with ${openCh}.`);
+}
+
+function consumeProcessedInjection(raw) {
+  if (!raw) throw new Error('Processed string injection is missing an expression after $$.');
+
+  const consumeAtom = (segment) => {
+    if (segment.startsWith('[')) return findMatchingDelimiter(segment, 0, '[', ']') + 1;
+    if (segment.startsWith('"[')) return findMatchingDelimiter(segment, 1, '[', ']') + 1;
+    if (segment.startsWith('|')) return findMatchingDelimiter(segment, 0, '|', '|') + 1;
+    if (segment.startsWith('{')) return findMatchingDelimiter(segment, 0, '{', '}') + 1;
+    if (segment.startsWith('^')) return findMatchingDelimiter(segment, 0, '^', '^') + 1;
+    const typedInt = segment.match(/^i(?:2|4|8|16|32|64|128|256|512)?\^/);
+    if (typedInt) return findMatchingDelimiter(segment, typedInt[0].length - 1, '^', '^') + 1;
+    if (segment.startsWith('b/') || segment.startsWith("b\\")) return 2;
+    if (segment.startsWith('/') || segment.startsWith("\\")) return 1;
+    if (segment.startsWith('l(')) {
+      const ltIdx = segment.indexOf('<');
+      if (ltIdx !== -1) return findMatchingDelimiter(segment, ltIdx, '<', '>') + 1;
+    }
+    if (segment.startsWith('m<')) {
+      const firstEnd = findMatchingDelimiter(segment, 1, '<', '>');
+      if (segment[firstEnd + 1] === '<') return findMatchingDelimiter(segment, firstEnd + 1, '<', '>') + 1;
+      return firstEnd + 1;
+    }
+    if (segment.startsWith('(')) return findMatchingDelimiter(segment, 0, '(', ')') + 1;
+    throw new Error('Unsupported processed-string injection; use forms like $$[name] or $$|...|.');
+  };
+
+  let consumed = consumeAtom(raw);
+  while (consumed < raw.length && (raw[consumed] === '@' || raw[consumed] === '~')) {
+    consumed += 1 + consumeAtom(raw.slice(consumed + 1));
+  }
+  return [raw.slice(0, consumed), consumed];
 }
 
 function parseByteLiteral(raw) {
@@ -206,7 +260,7 @@ class Parser {
   setVar(name, value, explicitType = null) {
     const resolvedType = explicitType || typeOfValue(value);
     const existing = this.state.variables.get(name);
-    if (existing && explicitType == null && existing.type !== resolvedType) {
+    if (existing && existing.type !== resolvedType) {
       throw new Error(`Type safety violation: variable '${name}' is ${existing.type}, cannot assign ${resolvedType}.`);
     }
     this.state.variables.set(name, { value, type: explicitType || (existing ? existing.type : resolvedType) });
@@ -214,11 +268,36 @@ class Parser {
 
   simpleEval(raw) {
     if (raw.startsWith('^') && raw.endsWith('^')) return Number(raw.slice(1, -1));
+    if (raw.startsWith('&£')) return raw.slice(2);
     if (raw.startsWith('£')) return raw.slice(1);
     if (raw === 'b/' || raw === '/') return true;
     if (raw === 'bfalse') return false;
     if (raw.startsWith('[') && raw.endsWith(']')) return this.readVar(raw.slice(1, -1));
     return raw;
+  }
+
+
+  async evaluateTypedValue(expr) {
+    const raw = expr.trim();
+    if (raw.startsWith('&£')) {
+      let out = '';
+      let idx = 2;
+      while (idx < raw.length) {
+        const marker = raw.indexOf('$$', idx);
+        if (marker === -1) {
+          out += raw.slice(idx);
+          break;
+        }
+        out += raw.slice(idx, marker);
+        const [injectedExpr, consumed] = consumeProcessedInjection(raw.slice(marker + 2));
+        const { value } = await this.evaluateTypedValue(injectedExpr);
+        out += String(value);
+        idx = marker + 2 + consumed;
+      }
+      return { value: out, type: '&£' };
+    }
+    const value = await this.evaluateValue(raw);
+    return { value, type: typeOfValue(value) };
   }
 
   async evaluateValue(expr) {
@@ -241,7 +320,11 @@ class Parser {
       const target = targetMatch[1];
       const current = this.readVar(target);
       if (!Array.isArray(current)) throw new Error('Append requires a list variable target.');
-      const value = await this.evaluateValue(rightRaw);
+      const meta = this.state.variables.get(target);
+      if (!meta || !meta.type.startsWith('l(') || !meta.type.endsWith(')')) throw new Error('Append requires a typed list variable target.');
+      const elementType = meta.type.slice(2, -1);
+      const { value, type } = await this.evaluateTypedValue(rightRaw);
+      if (type !== elementType) throw new Error(`Type safety violation: append expects ${elementType}, got ${type}.`);
       current.push(value);
       return current;
     }
@@ -273,6 +356,7 @@ class Parser {
       if (!/^[+-]?\d+$/.test(lit)) throw new Error(`${typeCode} requires an integer literal inside ^ ^.`);
       return Number(lit);
     }
+    if (raw.startsWith('&£')) return raw.slice(2);
     if (raw.startsWith('£')) return raw.slice(1);
     if (raw === 'b/' || raw === '/') return true;
     if (raw.startsWith('[') && raw.endsWith(']')) return this.readVar(raw.slice(1, -1));
@@ -296,9 +380,9 @@ class Parser {
       if (!body.trim()) return annotateListType([], `l(${elementType})`);
       const out = [];
       for (const item of splitTopLevel(body, ',')) {
-        const value = await this.evaluateValue(item);
-        if (typeOfValue(value) !== elementType) {
-          throw new Error(`Type safety violation: list expects ${elementType}, got ${typeOfValue(value)}.`);
+        const { value, type } = await this.evaluateTypedValue(item);
+        if (type !== elementType) {
+          throw new Error(`Type safety violation: list expects ${elementType}, got ${type}.`);
         }
         out.push(value);
       }
@@ -376,7 +460,8 @@ class Parser {
 
     const assign = s.match(/^\[([A-Za-z_]\w*)\]=(.*)$/);
     if (assign) {
-      this.setVar(assign[1], await this.evaluateValue(assign[2].trim()));
+      const { value, type } = await this.evaluateTypedValue(assign[2].trim());
+      this.setVar(assign[1], value, type);
       return;
     }
 
@@ -404,8 +489,7 @@ class Parser {
         throw new Error('Append target is corrupted: expected list value.');
       }
       const elementType = meta.type.slice(2, -1);
-      const value = await this.evaluateValue(append[2].trim());
-      const valueType = typeOfValue(value);
+      const { value, type: valueType } = await this.evaluateTypedValue(append[2].trim());
       if (elementType !== valueType) {
         throw new Error(`Type safety violation: append expects ${elementType}, got ${valueType}.`);
       }

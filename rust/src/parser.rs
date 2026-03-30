@@ -48,6 +48,7 @@ fn canonical_type_name(type_code: &str) -> String {
         "f" => "Float".to_string(),
         "i" => "Integer".to_string(),
         "£" => "String".to_string(),
+        "&£" => "ProcessedString".to_string(),
         _ if is_integer_type(type_code) => format!("Integer{}", &type_code[1..]),
         _ => type_code.to_string(),
     }
@@ -147,13 +148,14 @@ fn canonical_primitive_type(raw: &str) -> String {
         "str" | "string" | "s" => "£".to_string(),
         "matrix" => "m".to_string(),
         "£" => "£".to_string(),
+        "&£" => "&£".to_string(),
         other => other.to_string(),
     }
 }
 
 fn is_allowed_list_element_type(type_code: &str) -> bool {
     let normalized = canonical_primitive_type(type_code);
-    if matches!(normalized.as_str(), "£" | "b" | "f" | "c" | "m") || is_integer_type(&normalized) {
+    if matches!(normalized.as_str(), "£" | "&£" | "b" | "f" | "c" | "m") || is_integer_type(&normalized) {
         return true;
     }
     if normalized.starts_with("l(") && normalized.ends_with(')') {
@@ -173,6 +175,118 @@ fn parse_pointer_address(raw: &str) -> Result<i64, MorganicError> {
             .map_err(|_| MorganicError::new(format!("Invalid pointer address: {raw}")));
     }
     Err(MorganicError::new(format!("Invalid pointer address: {raw}")))
+}
+
+fn find_matching_delimiter(text: &str, start: usize, open_ch: u8, close_ch: u8) -> Result<usize, MorganicError> {
+    let bytes = text.as_bytes();
+    if bytes.get(start) != Some(&open_ch) {
+        return Err(MorganicError::new("Bad processed-string injection delimiter."));
+    }
+    if open_ch == close_ch {
+        for idx in start + 1..bytes.len() {
+            if bytes[idx] == close_ch {
+                return Ok(idx);
+            }
+        }
+        return Err(MorganicError::new("Unterminated processed-string injection."));
+    }
+    let mut depth = 0i32;
+    for idx in start..bytes.len() {
+        if bytes[idx] == open_ch {
+            depth += 1;
+        } else if bytes[idx] == close_ch {
+            depth -= 1;
+            if depth == 0 {
+                return Ok(idx);
+            }
+        }
+    }
+    Err(MorganicError::new("Unterminated processed-string injection."))
+}
+
+fn consume_processed_injection(raw: &str) -> Result<(String, usize), MorganicError> {
+    if raw.is_empty() {
+        return Err(MorganicError::new("Processed string injection is missing an expression after $$."));
+    }
+
+    fn consume_atom(segment: &str) -> Result<usize, MorganicError> {
+        if segment.starts_with('[') {
+            return Ok(find_matching_delimiter(segment, 0, b'[', b']')? + 1);
+        }
+        if segment.starts_with("\"[") {
+            return Ok(find_matching_delimiter(segment, 1, b'[', b']')? + 1);
+        }
+        if segment.starts_with('|') {
+            return Ok(find_matching_delimiter(segment, 0, b'|', b'|')? + 1);
+        }
+        if segment.starts_with('{') {
+            return Ok(find_matching_delimiter(segment, 0, b'{', b'}')? + 1);
+        }
+        if segment.starts_with('^') {
+            return Ok(find_matching_delimiter(segment, 0, b'^', b'^')? + 1);
+        }
+        if segment.starts_with('i') {
+            if let Some(caret_idx) = segment.find('^') {
+                return Ok(find_matching_delimiter(segment, caret_idx, b'^', b'^')? + 1);
+            }
+        }
+        if segment.starts_with("b/") || segment.starts_with("b\\") {
+            return Ok(2);
+        }
+        if segment.starts_with('/') || segment.starts_with("\\") {
+            return Ok(1);
+        }
+        if segment.starts_with("l(") {
+            if let Some(lt_idx) = segment.find('<') {
+                return Ok(find_matching_delimiter(segment, lt_idx, b'<', b'>')? + 1);
+            }
+        }
+        if segment.starts_with("m<") {
+            let first_end = find_matching_delimiter(segment, 1, b'<', b'>')?;
+            if segment[first_end + 1..].starts_with('<') {
+                return Ok(find_matching_delimiter(segment, first_end + 1, b'<', b'>')? + 1);
+            }
+            return Ok(first_end + 1);
+        }
+        if segment.starts_with('(') {
+            return Ok(find_matching_delimiter(segment, 0, b'(', b')')? + 1);
+        }
+        Err(MorganicError::new("Unsupported processed-string injection; use forms like $$[name] or $$|...|."))
+    }
+
+    let mut consumed = consume_atom(raw)?;
+    while let Some(ch) = raw[consumed..].chars().next() {
+        if ch != '@' && ch != '~' {
+            break;
+        }
+        consumed += 1 + consume_atom(&raw[consumed + 1..])?;
+    }
+    Ok((raw[..consumed].to_string(), consumed))
+}
+
+fn render_processed_string(raw: &str, state: &mut MorganicState) -> Result<String, MorganicError> {
+    let mut out = String::new();
+    let mut idx = 0usize;
+    while idx < raw.len() {
+        if let Some(marker_rel) = raw[idx..].find("$$") {
+            let marker = idx + marker_rel;
+            out.push_str(&raw[idx..marker]);
+            let (expr_text, consumed) = consume_processed_injection(&raw[marker + 2..])?;
+            let (value, _) = parse_value_expr(&expr_text, state)?;
+            match value {
+                Value::Int(v) => out.push_str(&v.to_string()),
+                Value::Float(v) => out.push_str(&v.to_string()),
+                Value::Bool(v) => out.push_str(if v { "true" } else { "false" }),
+                Value::Str(v) => out.push_str(&v),
+                Value::List(v) => out.push_str(&format!("{:?}", v)),
+            }
+            idx = marker + 2 + consumed;
+        } else {
+            out.push_str(&raw[idx..]);
+            break;
+        }
+    }
+    Ok(out)
 }
 
 fn parse_byte_literal(raw: &str) -> Result<u8, MorganicError> {
@@ -335,6 +449,10 @@ fn parse_value_expr(expr: &str, state: &mut MorganicState) -> Result<(Value, Str
         return Ok((Value::Bool(parse_bool_token(expr)?), "b".to_string()));
     }
 
+    if let Some(s) = expr.strip_prefix("&£") {
+        return Ok((Value::Str(render_processed_string(s, state)?), "&£".to_string()));
+    }
+
     if let Some(s) = expr.strip_prefix('£') {
         return Ok((Value::Str(s.to_string()), "£".to_string()));
     }
@@ -458,53 +576,191 @@ fn parse_loop_range_operand(expr: &str, state: &mut MorganicState) -> Result<i64
     }
 }
 
-fn render_graph(points: &[(i64, i64)], x_min: i64, x_max: i64, y_min: i64, y_max: i64, label_step: i64) -> String {
-    let width = (x_max - x_min + 1).max(1) as usize;
-    let height = (y_max - y_min + 1).max(1) as usize;
+fn parse_graph_range(raw: &str, axis_name: &str) -> Result<(i64, i64), MorganicError> {
+    let Some((min_raw, max_raw)) = raw.split_once('&') else {
+        return Err(MorganicError::new(format!("Bad {axis_name}-axis range: {raw}")));
+    };
+    let axis_min = min_raw
+        .trim()
+        .parse::<i64>()
+        .map_err(|_| MorganicError::new(format!("Bad {axis_name}-axis range: {raw}")))?;
+    let axis_max = max_raw
+        .trim()
+        .parse::<i64>()
+        .map_err(|_| MorganicError::new(format!("Bad {axis_name}-axis range: {raw}")))?;
+    if axis_min >= axis_max {
+        return Err(MorganicError::new(format!(
+            "{axis_name}-axis min must be less than max: {axis_min}&{axis_max}"
+        )));
+    }
+    Ok((axis_min, axis_max))
+}
+
+fn parse_graph_literal_points(payload: &str) -> Result<Option<Vec<(i64, i64)>>, MorganicError> {
+    let compact: String = payload.chars().filter(|ch| !ch.is_whitespace()).collect();
+    if compact.is_empty() || !compact.starts_with('(') {
+        return Ok(None);
+    }
+
+    let mut rest = compact.as_str();
+    let mut points = Vec::new();
+    while !rest.is_empty() {
+        if !rest.starts_with('(') {
+            return Err(MorganicError::new(
+                "Bad graph point payload; use consecutive pairs like {(0,0)(1,4)}.",
+            ));
+        }
+        let Some(end) = rest.find(')') else {
+            return Err(MorganicError::new("Bad graph coordinate pair."));
+        };
+        let pair = &rest[1..end];
+        let Some((x_raw, y_raw)) = pair.split_once(',') else {
+            return Err(MorganicError::new("Bad graph coordinate pair."));
+        };
+        let x = x_raw
+            .trim()
+            .parse::<i64>()
+            .map_err(|_| MorganicError::new("Bad graph x coordinate"))?;
+        let y = y_raw
+            .trim()
+            .parse::<i64>()
+            .map_err(|_| MorganicError::new("Bad graph y coordinate"))?;
+        points.push((x, y));
+        rest = &rest[end + 1..];
+    }
+    Ok(Some(points))
+}
+
+fn render_graph(
+    points: &[(i64, i64)],
+    x_min: i64,
+    x_max: i64,
+    y_min: i64,
+    y_max: i64,
+    label_step: i64,
+) -> Result<String, MorganicError> {
+    let x_scale = 2i64;
+    let left_margin = if label_step > 0 { 5usize } else { 0usize };
+    let bottom_margin = if label_step > 0 { 2usize } else { 0usize };
+    let plot_width = ((x_max - x_min) * x_scale + 1) as usize;
+    let plot_height = (y_max - y_min + 1) as usize;
+    let width = left_margin + plot_width;
+    let height = plot_height + bottom_margin;
     let mut grid = vec![vec![' '; width]; height];
-    if y_min <= 0 && 0 <= y_max {
-        let row = (y_max - 0) as usize;
-        for x in 0..width {
-            grid[row][x] = '-';
+
+    let to_grid_coords = |x: i64, y: i64| -> (usize, usize) {
+        (
+            left_margin + ((x - x_min) * x_scale) as usize,
+            (y_max - y) as usize,
+        )
+    };
+
+    if x_min <= 0 && 0 <= x_max {
+        let (axis_x, _) = to_grid_coords(0, 0);
+        for row in grid.iter_mut().take(plot_height) {
+            row[axis_x] = '│';
         }
     }
-    if x_min <= 0 && 0 <= x_max {
-        let col = (0 - x_min) as usize;
-        for row in grid.iter_mut().take(height) {
-            row[col] = '|';
+    if y_min <= 0 && 0 <= y_max {
+        let (_, axis_y) = to_grid_coords(0, 0);
+        for col in 0..width {
+            grid[axis_y][col] = '─';
         }
     }
     if x_min <= 0 && 0 <= x_max && y_min <= 0 && 0 <= y_max {
-        grid[(y_max - 0) as usize][(0 - x_min) as usize] = '+';
+        let (axis_x, axis_y) = to_grid_coords(0, 0);
+        grid[axis_y][axis_x] = '┼';
     }
-    for (x, y) in points {
-        if *x >= x_min && *x <= x_max && *y >= y_min && *y <= y_max {
-            grid[(y_max - *y) as usize][(*x - x_min) as usize] = '*';
+
+    for &(x, y) in points {
+        if !(x_min <= x && x <= x_max && y_min <= y && y <= y_max) {
+            return Err(MorganicError::new(format!(
+                "Point ({x},{y}) is outside graph range x[{x_min},{x_max}] y[{y_min},{y_max}]."
+            )));
         }
     }
-    let mut out = grid
-        .into_iter()
-        .map(|row| row.into_iter().collect::<String>())
-        .collect::<Vec<_>>()
-        .join("\n");
-    if label_step > 0 {
-        out.push_str(&format!("\nx labels: {x_min}..{x_max} step={label_step}"));
-        out.push_str(&format!("\ny labels: {y_min}..{y_max} step={label_step}"));
+
+    for &(x, y) in points {
+        let (gx, gy) = to_grid_coords(x, y);
+        grid[gy][gx] = '●';
     }
-    out
+
+    if x_min <= 0 && 0 <= x_max && label_step == 0 {
+        let (axis_x, _) = to_grid_coords(0, 0);
+        if grid[0][axis_x] == ' ' {
+            grid[0][axis_x] = 'y';
+        } else if axis_x + 1 < width && grid[0][axis_x + 1] == ' ' {
+            grid[0][axis_x + 1] = 'y';
+        }
+    }
+    if y_min <= 0 && 0 <= y_max && label_step == 0 {
+        let (_, axis_y) = to_grid_coords(0, 0);
+        grid[axis_y][width - 1] = 'x';
+    }
+
+    if label_step > 0 {
+        if y_min <= 0 && 0 <= y_max {
+            let x_label_row = plot_height.min(height - 1);
+            for x in x_min..=x_max {
+                if x % label_step != 0 {
+                    continue;
+                }
+                let (gx, _) = to_grid_coords(x, 0);
+                let label: Vec<char> = x.to_string().chars().collect();
+                let start = gx.saturating_sub(label.len() / 2);
+                if start + label.len() <= width {
+                    for (idx, ch) in label.iter().enumerate() {
+                        grid[x_label_row][start + idx] = *ch;
+                    }
+                }
+            }
+        }
+        if x_min <= 0 && 0 <= x_max {
+            let (axis_x, _) = to_grid_coords(0, 0);
+            for y in y_min..=y_max {
+                if y % label_step != 0 {
+                    continue;
+                }
+                let (_, gy) = to_grid_coords(0, y);
+                let label = format!("{:>width$}", y, width = left_margin.saturating_sub(1));
+                for (idx, ch) in label.chars().enumerate() {
+                    if idx < axis_x {
+                        grid[gy][idx] = ch;
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(grid
+        .into_iter()
+        .map(|row| row.into_iter().collect::<String>().trim_end().to_string())
+        .collect::<Vec<_>>()
+        .join("\n"))
 }
 
 fn list_to_points(list: &[Value]) -> Result<Vec<(i64, i64)>, MorganicError> {
+    if list.is_empty() {
+        return Err(MorganicError::new("Graph requires at least one point like {(0,0)}."));
+    }
+
     let mut points = Vec::with_capacity(list.len());
     for item in list {
-        match item {
-            Value::List(pair) if pair.len() == 2 => {
-                let x = if let Value::Int(v) = pair[0] { v } else { return Err(MorganicError::new("Graph points must be integer coordinate pairs.")); };
-                let y = if let Value::Int(v) = pair[1] { v } else { return Err(MorganicError::new("Graph points must be integer coordinate pairs.")); };
-                points.push((x, y));
-            }
-            _ => return Err(MorganicError::new("Graph payload must be a list of coordinate pairs.")),
+        let Value::List(pair) = item else {
+            return Err(MorganicError::new("Graph points must be 2D coordinate pairs."));
+        };
+        if pair.len() != 2 {
+            return Err(MorganicError::new("Graph points must be 2D coordinate pairs."));
         }
+        let x = match &pair[0] {
+            Value::Int(v) => *v,
+            _ => return Err(MorganicError::new("Graph coordinates must be integer pairs.")),
+        };
+        let y = match &pair[1] {
+            Value::Int(v) => *v,
+            _ => return Err(MorganicError::new("Graph coordinates must be integer pairs.")),
+        };
+        points.push((x, y));
     }
     Ok(points)
 }
@@ -801,38 +1057,31 @@ pub fn execute_statement(stmt: &str, state: &mut MorganicState) -> Result<(), Mo
         }
         if let (Some(lp), Some(rp)) = (header.find('('), header.rfind(')')) {
             let range = &header[lp + 1..rp];
-            if let Some((xraw, yraw)) = range.split_once(',') {
-                if let Some((xmin, xmax)) = xraw.split_once('&') {
-                    x_min = xmin.trim().parse().map_err(|_| MorganicError::new("Bad x-axis range"))?;
-                    x_max = xmax.trim().parse().map_err(|_| MorganicError::new("Bad x-axis range"))?;
-                }
-                if let Some((ymin, ymax)) = yraw.split_once('&') {
-                    y_min = ymin.trim().parse().map_err(|_| MorganicError::new("Bad y-axis range"))?;
-                    y_max = ymax.trim().parse().map_err(|_| MorganicError::new("Bad y-axis range"))?;
-                }
+            if let Some((x_raw, y_raw)) = range.split_once(',') {
+                (x_min, x_max) = parse_graph_range(x_raw.trim(), "x")?;
+                (y_min, y_max) = parse_graph_range(y_raw.trim(), "y")?;
             }
         }
-        let points = if payload.starts_with('[') && payload.ends_with(']') {
-            let (value, _) = parse_value_expr(payload, state)?;
-            let list = if let Value::List(v) = value { v } else { return Err(MorganicError::new("Graph payload must be a list value.")); };
-            list_to_points(&list)?
-        } else {
-            let mut points = Vec::new();
-            let mut rest = payload;
-            while let Some(start) = rest.find('(') {
-                let after = &rest[start + 1..];
-                let Some(end) = after.find(')') else { break };
-                let pair = &after[..end];
-                let Some((x, y)) = pair.split_once(',') else { return Err(MorganicError::new("Bad graph coordinate pair.")); };
-                points.push((
-                    x.trim().parse().map_err(|_| MorganicError::new("Bad graph x coordinate"))?,
-                    y.trim().parse().map_err(|_| MorganicError::new("Bad graph y coordinate"))?,
-                ));
-                rest = &after[end + 1..];
+        let points = match parse_graph_literal_points(payload)? {
+            Some(points) => points,
+            None => {
+                let (value, value_type) = parse_value_expr(payload, state)?;
+                if value_type != "l(c)" && value_type != "m" {
+                    return Err(MorganicError::new(
+                        "Graph payload expression must evaluate to l(c) or m.",
+                    ));
+                }
+                let list = if let Value::List(v) = value {
+                    v
+                } else {
+                    return Err(MorganicError::new(
+                        "Graph payload expression must evaluate to l(c) or m.",
+                    ));
+                };
+                list_to_points(&list)?
             }
-            points
         };
-        println!("{}", render_graph(&points, x_min, x_max, y_min, y_max, label_step));
+        println!("{}", render_graph(&points, x_min, x_max, y_min, y_max, label_step)?);
         return Ok(());
     }
 

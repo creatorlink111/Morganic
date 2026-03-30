@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import sys
 from typing import Any
 
 from .arithmetic import eval_arithmetic
@@ -8,6 +9,16 @@ from .errors import MorganicError
 from .parser_graph import parse_graph_points, parse_graph_range, render_console_graph
 from .splitter import split_statement_chunks, split_statements
 from .state import MorganicState
+
+def emit_output(value: Any) -> None:
+    """Print a value while tolerating narrow console encodings."""
+    text = str(value)
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        encoding = sys.stdout.encoding or 'utf-8'
+        sys.stdout.write(text.encode(encoding, errors='replace').decode(encoding, errors='replace'))
+        sys.stdout.write('\n')
 
 TYPE_ALIASES = {
     'b': 'b',
@@ -21,11 +32,15 @@ TYPE_ALIASES = {
     's': '£',
     'str': '£',
     'string': '£',
+    'pstring': '&£',
+    'processedstring': '&£',
+    'processed_string': '&£',
     'l': 'l',
     'list': 'l',
     'm': 'm',
     'matrix': 'm',
     '£': '£',
+    '&£': '&£',
 }
 for bits in (2, 4, 8, 16, 32, 64, 128, 256, 512):
     TYPE_ALIASES[f'i{bits}'] = f'i{bits}'
@@ -97,6 +112,8 @@ def canonical_type_name(type_code: str | None) -> str:
         return f'Integer{type_code[1:]}'
     if type_code == '£':
         return 'String'
+    if type_code == '&£':
+        return 'ProcessedString'
     if type_code == 'm':
         return 'MatrixCoords'
     if type_code == 'l(c)':
@@ -113,10 +130,23 @@ def split_top_level_csv(raw: str) -> list[str]:
     buf: list[str] = []
     depth = {'(': 0, '[': 0, '{': 0, '<': 0}
     pairs = {'(': ')', '[': ']', '{': '}', '<': '>'}
-    for ch in raw:
+    in_sstring = False
+    i = 0
+    while i < len(raw):
+        if raw.startswith('??', i):
+            in_sstring = not in_sstring
+            buf.append('??')
+            i += 2
+            continue
+        ch = raw[i]
+        if in_sstring:
+            buf.append(ch)
+            i += 1
+            continue
         if ch in depth:
             depth[ch] += 1
             buf.append(ch)
+            i += 1
             continue
         if ch in pairs.values():
             for k, v in pairs.items():
@@ -124,12 +154,15 @@ def split_top_level_csv(raw: str) -> list[str]:
                     depth[k] = max(0, depth[k] - 1)
                     break
             buf.append(ch)
+            i += 1
             continue
         if ch == ',' and all(level == 0 for level in depth.values()):
             tokens.append(''.join(buf).strip())
             buf = []
+            i += 1
             continue
         buf.append(ch)
+        i += 1
     tail = ''.join(buf).strip()
     if tail:
         tokens.append(tail)
@@ -140,18 +173,31 @@ def split_top_level_operator(raw: str, operator: str) -> tuple[str, str] | None:
     """Split expression by top-level operator, ignoring nested delimiters."""
     depth = {'(': 0, '[': 0, '{': 0, '<': 0}
     pairs = {'(': ')', '[': ']', '{': '}', '<': '>'}
-    for idx, ch in enumerate(raw):
+    in_sstring = False
+    i = 0
+    while i < len(raw):
+        if raw.startswith('??', i):
+            in_sstring = not in_sstring
+            i += 2
+            continue
+        ch = raw[i]
+        if in_sstring:
+            i += 1
+            continue
         if ch in depth:
             depth[ch] += 1
+            i += 1
             continue
         if ch in pairs.values():
             for opener, closer in pairs.items():
                 if closer == ch:
                     depth[opener] = max(0, depth[opener] - 1)
                     break
+            i += 1
             continue
         if ch == operator and all(level == 0 for level in depth.values()):
-            return raw[:idx].strip(), raw[idx + 1 :].strip()
+            return raw[:i].strip(), raw[i + 1 :].strip()
+        i += 1
     return None
 
 
@@ -165,7 +211,7 @@ def normalize_type_alias(raw_type: str) -> str:
 def is_list_element_type_allowed(type_code: str) -> bool:
     """Allow primitive, matrix, coord, and recursively-nested list element types."""
     normalized = normalize_type_alias(type_code)
-    if normalized in {'b', 'f', '£', 'c', 'm'} or is_integer_type(normalized):
+    if normalized in {'b', 'f', '£', '&£', 'c', 'm'} or is_integer_type(normalized):
         return True
     if normalized.startswith('l(') and normalized.endswith(')'):
         inner = normalized[2:-1].strip()
@@ -285,6 +331,89 @@ def parse_bool_token(token: str) -> bool:
     if token == '\\':
         return False
     raise MorganicError(f"Expected boolean token '/' or '\\', got: {token}")
+
+
+def find_matching_delimiter(text: str, start: int, open_ch: str, close_ch: str) -> int:
+    """Return the index of the matching closing delimiter."""
+    if start >= len(text) or text[start] != open_ch:
+        raise MorganicError(f"Expected '{open_ch}' at position {start}.")
+    if open_ch == close_ch:
+        end = text.find(close_ch, start + 1)
+        if end == -1:
+            raise MorganicError(f"Unterminated expression starting with {open_ch}.")
+        return end
+    depth = 0
+    for idx in range(start, len(text)):
+        ch = text[idx]
+        if ch == open_ch:
+            depth += 1
+        elif ch == close_ch:
+            depth -= 1
+            if depth == 0:
+                return idx
+    raise MorganicError(f"Unterminated expression starting with {open_ch}.")
+
+
+def consume_processed_injection(raw: str) -> tuple[str, int]:
+    """Consume one self-delimiting processed-string injection expression."""
+    if not raw:
+        raise MorganicError("Processed string injection is missing an expression after $$.")
+
+    def consume_atom(segment: str) -> int:
+        if segment.startswith('['):
+            return find_matching_delimiter(segment, 0, '[', ']') + 1
+        if segment.startswith('"['):
+            return find_matching_delimiter(segment, 1, '[', ']') + 1
+        if segment.startswith('|'):
+            return find_matching_delimiter(segment, 0, '|', '|') + 1
+        if segment.startswith('{'):
+            return find_matching_delimiter(segment, 0, '{', '}') + 1
+        if segment.startswith('^'):
+            return find_matching_delimiter(segment, 0, '^', '^') + 1
+        m = re.match(r"i(?:2|4|8|16|32|64|128|256|512)?\^", segment)
+        if m:
+            tail = find_matching_delimiter(segment, m.end() - 1, '^', '^')
+            return tail + 1
+        if segment.startswith('b/') or segment.startswith('b\\'):
+            return 2
+        if segment[:1] in {'/', '\\'}:
+            return 1
+        if segment.startswith('l('):
+            lt_idx = segment.find('<')
+            if lt_idx != -1:
+                return find_matching_delimiter(segment, lt_idx, '<', '>') + 1
+        if segment.startswith('m<'):
+            end = find_matching_delimiter(segment, 1, '<', '>')
+            if end + 1 < len(segment) and segment[end + 1] == '<':
+                return find_matching_delimiter(segment, end + 1, '<', '>') + 1
+            return end + 1
+        if segment.startswith('('):
+            return find_matching_delimiter(segment, 0, '(', ')') + 1
+        raise MorganicError("Unsupported processed-string injection; use forms like $$[name] or $$|...|.")
+
+    consumed = consume_atom(raw)
+    while consumed < len(raw) and raw[consumed] in {'@', '~'}:
+        rhs_start = consumed + 1
+        rhs_len = consume_atom(raw[rhs_start:])
+        consumed = rhs_start + rhs_len
+    return raw[:consumed], consumed
+
+
+def render_processed_string(raw: str, state: MorganicState) -> str:
+    """Render a processed string with $$ injections."""
+    out: list[str] = []
+    idx = 0
+    while idx < len(raw):
+        marker = raw.find('$$', idx)
+        if marker == -1:
+            out.append(raw[idx:])
+            break
+        out.append(raw[idx:marker])
+        expr_text, consumed = consume_processed_injection(raw[marker + 2:])
+        value, _ = parse_value_expr(expr_text, state)
+        out.append(str(value))
+        idx = marker + 2 + consumed
+    return ''.join(out)
 
 
 def parse_value_expr(expr: str, state: MorganicState) -> tuple[Any, str | None]:
@@ -419,6 +548,9 @@ def parse_value_expr(expr: str, state: MorganicState) -> tuple[Any, str | None]:
     if expr in {'/', '\\'}:
         return parse_bool_token(expr), 'b'
 
+    if expr.startswith('&£'):
+        return render_processed_string(expr[2:], state), '&£'
+
     if expr.startswith('£'):
         return expr[1:], '£'
 
@@ -495,7 +627,7 @@ def convert_value(value: Any, src_type: str, target_type: str) -> tuple[Any, str
             out = int(value)
             validate_integer_range(out, target_type)
             return out, target_type
-        if src_type == '£' and re.fullmatch(r"[+-]?\d+", value):
+        if src_type in {'£', '&£'} and re.fullmatch(r"[+-]?\d+", value):
             out = int(value)
             validate_integer_range(out, target_type)
             return out, target_type
@@ -508,17 +640,17 @@ def convert_value(value: Any, src_type: str, target_type: str) -> tuple[Any, str
     if target_type == 'f':
         if src_type == 'i':
             return float(value), 'f'
-        if src_type == '£' and re.fullmatch(r"[+-]?(?:\d+\.\d+|\d+)", value):
+        if src_type in {'£', '&£'} and re.fullmatch(r"[+-]?(?:\d+\.\d+|\d+)", value):
             return float(value), 'f'
         raise MorganicError(f"Incompatible conversion: {src_type} -> f")
 
     if target_type == 'b':
-        if src_type == '£' and value in {'/', '\\'}:
+        if src_type in {'£', '&£'} and value in {'/', '\\'}:
             return (value == '/'), 'b'
         raise MorganicError(f"Incompatible conversion: {src_type} -> b")
 
     if target_type == '£':
-        if src_type in {'i', 'f', 'b', '£'}:
+        if src_type in {'i', 'f', 'b', '£', '&£'}:
             if src_type == 'b':
                 return ('/' if value else '\\'), '£'
             return str(value), '£'
@@ -580,7 +712,7 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
             interval = int(label_mode)
             if interval <= 0:
                 raise MorganicError("Graph label mode must be 0.1, 0.2, ...")
-        print(render_console_graph(x_min, x_max, y_min, y_max, points, label_every_units=interval))
+        emit_output(render_console_graph(x_min, x_max, y_min, y_max, points, label_every_units=interval))
         return
 
     m = re.fullmatch(r"\*([A-Za-z_][A-Za-z0-9_]*)\{(.*)\}", stmt, re.DOTALL)

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -9,14 +12,20 @@ ROOT = Path(__file__).resolve().parents[2]
 SUCCESS_FIXTURES = [
     ("arithmetic", "[a]=^3^:[b]=^4^:1(|`a+`b|)", "7"),
     ("append_index", "[xs]=l(i)<^1^,^2^,^3^>:[xs]~[xs]@^2^:1([xs]@^3^)", "3"),
-    ("nested_list_type", "[mylist]=l(m)<m<0,1,2><3,1,5>,m<4,2,5><5,6,3>>:1(£ok)", "ok"),
+    ("nested_list_type", "[mylist]=l(m)<m<0,1,2><3,1,5>,m<4,2,5><5,6,3>>:1(Â£ok)", "ok"),
     ("pointers_bytes", "++buffer==[0x48 0x65 0x6C 0x6C 0x6F]:buffer+-0:+buffer+1:-buffer>>2:[v]=--buffer:1([v])", "108"),
+    ("processed_string", "[name]=£Morgan:[msg]=&£hello $$[name], $$|10+8| total:1([msg])", "hello Morgan, 18 total"),
 ]
 
 ERROR_FIXTURES = [
     ("bad_numeric_literal", "[x]=3", "Numeric literals must be wrapped"),
     ("bad_append_target", "[x]=^1^:[x]~^2^", "typed list variable"),
 ]
+
+
+def _require_cargo() -> None:
+    if shutil.which("cargo") is None:
+        pytest.skip("cargo is not installed in this environment")
 
 
 def _run_python(source: str) -> subprocess.CompletedProcess[str]:
@@ -59,6 +68,7 @@ def _normalize_error(proc: subprocess.CompletedProcess[str]) -> str:
 
 
 def test_success_fixtures_conform_across_all_runtimes() -> None:
+    _require_cargo()
     runtimes = {"python": _run_python, "rust": _run_rust, "node": _run_node}
     for fixture_name, source, expected_stdout in SUCCESS_FIXTURES:
         outputs: dict[str, str] = {}
@@ -71,6 +81,7 @@ def test_success_fixtures_conform_across_all_runtimes() -> None:
 
 
 def test_error_fixtures_conform_across_all_runtimes() -> None:
+    _require_cargo()
     runtimes = {"python": _run_python, "rust": _run_rust, "node": _run_node}
     for fixture_name, source, expected_message in ERROR_FIXTURES:
         failures: dict[str, str] = {}

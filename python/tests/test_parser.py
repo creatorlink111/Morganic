@@ -208,3 +208,24 @@ def test_pointer_byte_buffer_and_dereference() -> None:
     state = MorganicState()
     execute_program("++buffer==[0x48 0x65 0x6C 0x6C 0x6F]:buffer+-1:[x]=--buffer", state)
     assert state.env["x"] == 101
+
+
+def test_processed_string_injects_variables_and_expressions() -> None:
+    state = MorganicState()
+    execute_program('[name]=£Morgan:[msg]=&£hello $$[name], $$|10+8| total', state)
+    assert state.env['msg'] == 'hello Morgan, 18 total'
+    assert state.types['msg'] == '&£'
+
+
+def test_processed_string_type_query_returns_canonical_name() -> None:
+    state = MorganicState()
+    execute_program('[msg]=&£value=$$|10+8|:[kind]="[msg]', state)
+    assert state.env['kind'] == 'ProcessedString'
+    assert state.types['kind'] == '£'
+
+
+def test_processed_string_rejects_unsupported_injection_form() -> None:
+    state = MorganicState()
+    with pytest.raises(MorganicError) as exc:
+        execute_program('[msg]=&£bad $$abc', state)
+    assert 'processed-string injection' in str(exc.value).lower()
