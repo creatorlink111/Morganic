@@ -26,3 +26,9 @@ def test_repl_source_preparation_resolves_imports() -> None:
     nested = Path(__file__).resolve().parent
     prepared = _prepare_repl_source("@scicons.morgan@:[v]=[SCI_TAU]", nested)
     assert "[SCI_TAU]=^6.283185307179586^:" in prepared
+
+def test_special_string_does_not_force_repl_split() -> None:
+    special = '\u00A3\u00A3'
+    prepared = f'[msg]={special}today: third of april{special}'
+    assert _needs_more_input(prepared) is False
+

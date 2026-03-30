@@ -229,3 +229,27 @@ def test_processed_string_rejects_unsupported_injection_form() -> None:
     with pytest.raises(MorganicError) as exc:
         execute_program('[msg]=&£bad $$abc', state)
     assert 'processed-string injection' in str(exc.value).lower()
+
+def test_special_string_allows_colons_without_creating_extra_statements() -> None:
+    state = MorganicState()
+    special = '\u00A3\u00A3'
+    execute_program(f'[msg]={special}today: third of april{special}', state)
+    assert state.env['msg'] == 'today: third of april'
+    assert state.types['msg'] == '\u00A3\u00A3'
+
+
+def test_unistring_is_deallocated_after_read() -> None:
+    state = MorganicState()
+    execute_program('[secret]=?\u00A3private:[copy]=[secret]', state)
+    assert state.env['copy'] == 'private'
+    assert state.types['copy'] == '?\u00A3'
+    assert 'secret' not in state.env
+    assert 'secret' not in state.types
+
+
+def test_variable_can_be_converted_to_unistring() -> None:
+    state = MorganicState()
+    execute_program('[token]=\u00A3abc:[token]$?\u00A3:[out]=[token]', state)
+    assert state.env['out'] == 'abc'
+    assert 'token' not in state.env
+

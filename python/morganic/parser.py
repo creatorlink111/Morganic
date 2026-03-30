@@ -20,6 +20,12 @@ def emit_output(value: Any) -> None:
         sys.stdout.write(text.encode(encoding, errors='replace').decode(encoding, errors='replace'))
         sys.stdout.write('\n')
 
+POUND = '\u00A3'
+STRING_TYPE = POUND
+PROCESSED_STRING_TYPE = f'&{POUND}'
+SPECIAL_STRING_TYPE = POUND * 2
+UNI_STRING_TYPE = f'?{POUND}'
+
 TYPE_ALIASES = {
     'b': 'b',
     'bool': 'b',
@@ -29,18 +35,26 @@ TYPE_ALIASES = {
     'integer': 'i',
     'f': 'f',
     'float': 'f',
-    's': '£',
-    'str': '£',
-    'string': '£',
-    'pstring': '&£',
-    'processedstring': '&£',
-    'processed_string': '&£',
+    's': STRING_TYPE,
+    'str': STRING_TYPE,
+    'string': STRING_TYPE,
+    'pstring': PROCESSED_STRING_TYPE,
+    'processedstring': PROCESSED_STRING_TYPE,
+    'processed_string': PROCESSED_STRING_TYPE,
+    'sstring': SPECIAL_STRING_TYPE,
+    'specialstring': SPECIAL_STRING_TYPE,
+    'special_string': SPECIAL_STRING_TYPE,
+    'ustring': UNI_STRING_TYPE,
+    'unistring': UNI_STRING_TYPE,
+    'uni_string': UNI_STRING_TYPE,
     'l': 'l',
     'list': 'l',
     'm': 'm',
     'matrix': 'm',
-    '£': '£',
-    '&£': '&£',
+    STRING_TYPE: STRING_TYPE,
+    PROCESSED_STRING_TYPE: PROCESSED_STRING_TYPE,
+    SPECIAL_STRING_TYPE: SPECIAL_STRING_TYPE,
+    UNI_STRING_TYPE: UNI_STRING_TYPE,
 }
 for bits in (2, 4, 8, 16, 32, 64, 128, 256, 512):
     TYPE_ALIASES[f'i{bits}'] = f'i{bits}'
@@ -83,6 +97,16 @@ def get_var(state: MorganicState, name: str) -> Any:
     return state.env[name]
 
 
+def read_var_expr(state: MorganicState, name: str) -> tuple[Any, str | None]:
+    """Read a variable expression, consuming UniStrings after access."""
+    value = get_var(state, name)
+    type_code = state.types.get(name)
+    if type_code == UNI_STRING_TYPE:
+        state.env.pop(name, None)
+        state.types.pop(name, None)
+    return value, type_code
+
+
 def infer_type_code(value: Any) -> str:
     """Infer Morganic type code from a Python runtime value."""
     if isinstance(value, bool):
@@ -110,10 +134,14 @@ def canonical_type_name(type_code: str | None) -> str:
         return 'Integer'
     if is_integer_type(type_code):
         return f'Integer{type_code[1:]}'
-    if type_code == '£':
+    if type_code == STRING_TYPE:
         return 'String'
-    if type_code == '&£':
+    if type_code == PROCESSED_STRING_TYPE:
         return 'ProcessedString'
+    if type_code == SPECIAL_STRING_TYPE:
+        return 'SpecialString'
+    if type_code == UNI_STRING_TYPE:
+        return 'UniString'
     if type_code == 'm':
         return 'MatrixCoords'
     if type_code == 'l(c)':
@@ -133,9 +161,9 @@ def split_top_level_csv(raw: str) -> list[str]:
     in_sstring = False
     i = 0
     while i < len(raw):
-        if raw.startswith('??', i):
+        if raw.startswith('££', i):
             in_sstring = not in_sstring
-            buf.append('??')
+            buf.append('££')
             i += 2
             continue
         ch = raw[i]
@@ -176,7 +204,7 @@ def split_top_level_operator(raw: str, operator: str) -> tuple[str, str] | None:
     in_sstring = False
     i = 0
     while i < len(raw):
-        if raw.startswith('??', i):
+        if raw.startswith('££', i):
             in_sstring = not in_sstring
             i += 2
             continue
@@ -211,7 +239,7 @@ def normalize_type_alias(raw_type: str) -> str:
 def is_list_element_type_allowed(type_code: str) -> bool:
     """Allow primitive, matrix, coord, and recursively-nested list element types."""
     normalized = normalize_type_alias(type_code)
-    if normalized in {'b', 'f', '£', '&£', 'c', 'm'} or is_integer_type(normalized):
+    if normalized in {'b', 'f', STRING_TYPE, PROCESSED_STRING_TYPE, SPECIAL_STRING_TYPE, UNI_STRING_TYPE, 'c', 'm'} or is_integer_type(normalized):
         return True
     if normalized.startswith('l(') and normalized.endswith(')'):
         inner = normalized[2:-1].strip()
@@ -471,7 +499,7 @@ def parse_value_expr(expr: str, state: MorganicState) -> tuple[Any, str | None]:
     m = re.fullmatch(r"\[(\w+)\]", expr)
     if m:
         name = m.group(1)
-        return get_var(state, name), state.types.get(name)
+        return read_var_expr(state, name)
 
     m = re.fullmatch(r"\"\[(\w+)\]", expr)
     if m:
@@ -488,7 +516,7 @@ def parse_value_expr(expr: str, state: MorganicState) -> tuple[Any, str | None]:
     m = re.fullmatch(r"`([A-Za-z_][A-Za-z0-9_]*)", expr)
     if m:
         name = m.group(1)
-        return get_var(state, name), state.types.get(name)
+        return read_var_expr(state, name)
 
     m = re.fullmatch(r"\*([A-Za-z_][A-Za-z0-9_]*)\{(.*)\}", expr, re.DOTALL)
     if m:
@@ -548,11 +576,17 @@ def parse_value_expr(expr: str, state: MorganicState) -> tuple[Any, str | None]:
     if expr in {'/', '\\'}:
         return parse_bool_token(expr), 'b'
 
-    if expr.startswith('&£'):
-        return render_processed_string(expr[2:], state), '&£'
+    if expr.startswith(PROCESSED_STRING_TYPE):
+        return render_processed_string(expr[2:], state), PROCESSED_STRING_TYPE
 
-    if expr.startswith('£'):
-        return expr[1:], '£'
+    if expr.startswith(SPECIAL_STRING_TYPE) and expr.endswith(SPECIAL_STRING_TYPE) and len(expr) >= 4:
+        return expr[2:-2], SPECIAL_STRING_TYPE
+
+    if expr.startswith(UNI_STRING_TYPE):
+        return expr[2:], UNI_STRING_TYPE
+
+    if expr.startswith(STRING_TYPE):
+        return expr[1:], STRING_TYPE
 
     split_append = split_top_level_operator(expr, '~')
     if split_append is not None:
@@ -627,7 +661,7 @@ def convert_value(value: Any, src_type: str, target_type: str) -> tuple[Any, str
             out = int(value)
             validate_integer_range(out, target_type)
             return out, target_type
-        if src_type in {'£', '&£'} and re.fullmatch(r"[+-]?\d+", value):
+        if src_type in {STRING_TYPE, PROCESSED_STRING_TYPE, SPECIAL_STRING_TYPE, UNI_STRING_TYPE} and re.fullmatch(r"[+-]?\d+", value):
             out = int(value)
             validate_integer_range(out, target_type)
             return out, target_type
@@ -640,21 +674,21 @@ def convert_value(value: Any, src_type: str, target_type: str) -> tuple[Any, str
     if target_type == 'f':
         if src_type == 'i':
             return float(value), 'f'
-        if src_type in {'£', '&£'} and re.fullmatch(r"[+-]?(?:\d+\.\d+|\d+)", value):
+        if src_type in {STRING_TYPE, PROCESSED_STRING_TYPE, SPECIAL_STRING_TYPE, UNI_STRING_TYPE} and re.fullmatch(r"[+-]?(?:\d+\.\d+|\d+)", value):
             return float(value), 'f'
         raise MorganicError(f"Incompatible conversion: {src_type} -> f")
 
     if target_type == 'b':
-        if src_type in {'£', '&£'} and value in {'/', '\\'}:
+        if src_type in {STRING_TYPE, PROCESSED_STRING_TYPE, SPECIAL_STRING_TYPE, UNI_STRING_TYPE} and value in {'/', '\\'}:
             return (value == '/'), 'b'
         raise MorganicError(f"Incompatible conversion: {src_type} -> b")
 
-    if target_type == '£':
-        if src_type in {'i', 'f', 'b', '£', '&£'}:
+    if target_type in {STRING_TYPE, UNI_STRING_TYPE}:
+        if src_type in {'i', 'f', 'b', STRING_TYPE, PROCESSED_STRING_TYPE, SPECIAL_STRING_TYPE, UNI_STRING_TYPE}:
             if src_type == 'b':
-                return ('/' if value else '\\'), '£'
-            return str(value), '£'
-        raise MorganicError(f"Incompatible conversion: {src_type} -> £")
+                return ('/' if value else '\\'), target_type
+            return str(value), target_type
+        raise MorganicError(f"Incompatible conversion: {src_type} -> {target_type}")
 
     raise MorganicError(f"Unsupported target conversion type: {target_type}")
 
@@ -895,21 +929,21 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
     if m:
         name = m.group(1)
         prompt = m.group(2)
-        if prompt.startswith('£'):
+        if prompt.startswith(STRING_TYPE):
             prompt = prompt[1:]
         try:
             value = input(prompt)
         except EOFError:
             value = '0'
-        store_value(state, name, value, '£')
+        store_value(state, name, value, STRING_TYPE)
         return
 
-    m = re.fullmatch(r"\[(\w+)\]\$([A-Za-z£][A-Za-z0-9]*)", stmt)
+    m = re.fullmatch(r"\[(\w+)\]\$([^\s:]+)", stmt)
     if m:
         name = m.group(1)
         raw_target = m.group(2).lower()
         target_type = TYPE_ALIASES.get(raw_target, m.group(2))
-        if target_type not in {'f', 'b', '£'} and not is_integer_type(target_type):
+        if target_type not in {'f', 'b', STRING_TYPE, UNI_STRING_TYPE} and not is_integer_type(target_type):
             raise MorganicError(f"Unsupported conversion target: {m.group(2)}")
         value = get_var(state, name)
         src_type = state.types.get(name, infer_type_code(value))

@@ -1,4 +1,4 @@
-﻿"""Source pre-processing and statement splitting utilities."""
+"""Source pre-processing and statement splitting utilities."""
 
 from __future__ import annotations
 
@@ -14,6 +14,10 @@ class StatementChunk:
     line: int
 
 
+def _starts_special_string(source: str, index: int) -> bool:
+    return source.startswith('\u00A3\u00A3', index)
+
+
 def strip_comments(source: str) -> str:
     """Remove single-line (`%`) and block (`%%...%`) comments from source text."""
     out: list[str] = []
@@ -22,8 +26,8 @@ def strip_comments(source: str) -> str:
     in_arithmetic = False
     in_sstring = False
     while i < n:
-        if source.startswith('££', i):
-            out.append('££')
+        if _starts_special_string(source, i):
+            out.append(source[i:i + 2])
             in_sstring = not in_sstring
             i += 2
             continue
@@ -70,10 +74,10 @@ def split_statement_chunks(source: str) -> list[StatementChunk]:
 
     i = 0
     while i < len(source):
-        if source.startswith('££', i):
+        if _starts_special_string(source, i):
             if not buf:
                 current_stmt_line = line
-            buf.append('££')
+            buf.append(source[i:i + 2])
             in_sstring = not in_sstring
             i += 2
             continue

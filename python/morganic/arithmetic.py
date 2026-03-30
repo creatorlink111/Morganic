@@ -35,7 +35,11 @@ def _read_variable(state: MorganicState, name: str) -> Any:
     """Read a variable reference from state with contextual errors."""
     if name not in state.env:
         raise MorganicError("Undefined variable in arithmetic block", token=name)
-    return state.env[name]
+    value = state.env[name]
+    if state.types.get(name) == '?\u00A3':
+        state.env.pop(name, None)
+        state.types.pop(name, None)
+    return value
 
 
 def _eval_node(node: ast.AST, state: MorganicState) -> Any:

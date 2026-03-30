@@ -35,7 +35,10 @@ def colorize_source_line(line: str) -> str:
     patterns = [
         (r"(@[A-Za-z0-9_./\\-]+\.(?:morgan|elemens)@)", "import"),
         (r"(%%.*?%|%.*$)", "comment"),
-        (r"(£[^\n:]*)", "string"),
+        (r"(\u00A3\u00A3.*?(?:\u00A3\u00A3|$))", "string"),
+        (r"(&\u00A3[^\n:]*)", "string"),
+        (r"(\?\u00A3[^\n:]*)", "string"),
+        (r"(\u00A3[^\n:]*)", "string"),
         (r"(#[A-Za-z_][A-Za-z0-9_]*)", "func"),
         (r"(\^[+-]?(?:\d+(?:\.\d+)?|\.\d+)\^)", "number"),
         (r"(\[[A-Za-z_][A-Za-z0-9_]*\]|`[A-Za-z_][A-Za-z0-9_]*|&[A-Za-z_][A-Za-z0-9_]*)", "var"),
@@ -81,7 +84,10 @@ def _read_repl_line(prompt: str) -> str:
                     patterns = [
                         (r"@[A-Za-z0-9_./\\-]+\.(?:morgan|elemens)@", "class:import"),
                         (r"%%.*?%|%.*$", "class:comment"),
-                        (r"£[^\n:]*", "class:string"),
+                        (r"\u00A3\u00A3.*?(?:\u00A3\u00A3|$)", "class:string"),
+                        (r"&\u00A3[^\n:]*", "class:string"),
+                        (r"\?\u00A3[^\n:]*", "class:string"),
+                        (r"\u00A3[^\n:]*", "class:string"),
                         (r"#[A-Za-z_][A-Za-z0-9_]*", "class:func"),
                         (r"\^[+-]?(?:\d+(?:\.\d+)?|\.\d+)\^", "class:number"),
                         (r"\[[A-Za-z_][A-Za-z0-9_]*\]|`[A-Za-z_][A-Za-z0-9_]*|&[A-Za-z_][A-Za-z0-9_]*", "class:var"),
@@ -302,3 +308,4 @@ def main(argv: list[str] | None = None) -> int:
 if __name__ == "__main__":
     sys.path.insert(0, '.')
     raise SystemExit(main())
+

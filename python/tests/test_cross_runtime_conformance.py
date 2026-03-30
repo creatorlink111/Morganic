@@ -12,9 +12,9 @@ ROOT = Path(__file__).resolve().parents[2]
 SUCCESS_FIXTURES = [
     ("arithmetic", "[a]=^3^:[b]=^4^:1(|`a+`b|)", "7"),
     ("append_index", "[xs]=l(i)<^1^,^2^,^3^>:[xs]~[xs]@^2^:1([xs]@^3^)", "3"),
-    ("nested_list_type", "[mylist]=l(m)<m<0,1,2><3,1,5>,m<4,2,5><5,6,3>>:1(Â£ok)", "ok"),
+    ("nested_list_type", "[mylist]=l(m)<m<0,1,2><3,1,5>,m<4,2,5><5,6,3>>:1(\u00A3ok)", "ok"),
     ("pointers_bytes", "++buffer==[0x48 0x65 0x6C 0x6C 0x6F]:buffer+-0:+buffer+1:-buffer>>2:[v]=--buffer:1([v])", "108"),
-    ("processed_string", "[name]=£Morgan:[msg]=&£hello $$[name], $$|10+8| total:1([msg])", "hello Morgan, 18 total"),
+    ("processed_string", "[name]=\u00A3Morgan:[msg]=&\u00A3hello $$[name], $$|10+8| total:1([msg])", "hello Morgan, 18 total"),
 ]
 
 ERROR_FIXTURES = [
