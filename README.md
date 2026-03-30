@@ -142,6 +142,8 @@ No Python is required in this runtime path.
 - `b` boolean (`/` true, `\` false)
 - `£` string
 - `&£` processed string with `$$...` injections
+- `££1` special string with special characters
+- `?£` unistring - read once before deallocation
 - `l(type)` typed list (`l(i4)`, `l(f)`, `l(£)`, etc.)
 - `l(c)` coordinate list (list of `(x,y)` integer pairs)
 - `m` matrix-style coordinate set from parallel x/y lists
