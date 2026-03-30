@@ -60,8 +60,33 @@ def strip_comments(source: str) -> str:
     return ''.join(out)
 
 
+def strip_repl_prompts(source: str) -> str:
+    """Remove pasted REPL prompts (`>>>` / `...`) at line starts."""
+    cleaned_lines: list[str] = []
+    for line in source.splitlines():
+        working = line
+        while True:
+            trimmed = working.lstrip()
+            if trimmed.startswith('>>>'):
+                trimmed = trimmed[3:]
+                if trimmed.startswith(' '):
+                    trimmed = trimmed[1:]
+                working = trimmed
+                continue
+            if trimmed.startswith('...'):
+                trimmed = trimmed[3:]
+                if trimmed.startswith(' '):
+                    trimmed = trimmed[1:]
+                working = trimmed
+                continue
+            break
+        cleaned_lines.append(working)
+    return '\n'.join(cleaned_lines)
+
+
 def split_statement_chunks(source: str) -> list[StatementChunk]:
     """Split source into top-level statements by `:` while tracking start lines."""
+    source = strip_repl_prompts(source)
     source = strip_comments(source)
     out: list[StatementChunk] = []
     buf: list[str] = []

@@ -247,9 +247,24 @@ def test_unistring_is_deallocated_after_read() -> None:
     assert 'secret' not in state.types
 
 
+def test_unistring_type_query_consumes_original_variable() -> None:
+    state = MorganicState()
+    execute_program('[secret]=?\u00A3private:[kind]="[secret]', state)
+    assert state.env['kind'] == 'UniString'
+    assert 'secret' not in state.env
+    assert 'secret' not in state.types
+
+
+def test_unistring_print_consumes_original_variable(capsys: pytest.CaptureFixture[str]) -> None:
+    state = MorganicState()
+    execute_program('[secret]=?\u00A3private:1([secret])', state)
+    assert capsys.readouterr().out.strip() == 'private'
+    assert 'secret' not in state.env
+    assert 'secret' not in state.types
+
+
 def test_variable_can_be_converted_to_unistring() -> None:
     state = MorganicState()
     execute_program('[token]=\u00A3abc:[token]$?\u00A3:[out]=[token]', state)
     assert state.env['out'] == 'abc'
     assert 'token' not in state.env
-

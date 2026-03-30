@@ -92,19 +92,26 @@ def is_numeric_literal(expr: str) -> bool:
 
 
 def get_var(state: MorganicState, name: str) -> Any:
+    """Read a variable value, consuming UniStrings after access."""
+    value, _ = get_var_with_type(state, name)
+    return value
+
+
+def get_var_with_type(state: MorganicState, name: str) -> tuple[Any, str | None]:
+    """Read variable value and type, consuming UniStrings after access."""
     if name not in state.env:
         raise MorganicError("Undefined variable", token=name, hint="Define it before use with [name]=...")
-    return state.env[name]
-
-
-def read_var_expr(state: MorganicState, name: str) -> tuple[Any, str | None]:
-    """Read a variable expression, consuming UniStrings after access."""
-    value = get_var(state, name)
+    value = state.env[name]
     type_code = state.types.get(name)
     if type_code == UNI_STRING_TYPE:
         state.env.pop(name, None)
         state.types.pop(name, None)
     return value, type_code
+
+
+def read_var_expr(state: MorganicState, name: str) -> tuple[Any, str | None]:
+    """Read a variable expression, consuming UniStrings after access."""
+    return get_var_with_type(state, name)
 
 
 def infer_type_code(value: Any) -> str:
@@ -504,9 +511,8 @@ def parse_value_expr(expr: str, state: MorganicState) -> tuple[Any, str | None]:
     m = re.fullmatch(r"\"\[(\w+)\]", expr)
     if m:
         name = m.group(1)
-        if name not in state.env:
-            raise MorganicError("Undefined variable", token=name, hint="Define it before reading type with \"[name].")
-        return canonical_type_name(state.types.get(name)), '£'
+        _, type_code = get_var_with_type(state, name)
+        return canonical_type_name(type_code), '£'
 
     m = re.fullmatch(r"\|(.+)\|", expr, re.DOTALL)
     if m:
@@ -945,8 +951,8 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
         target_type = TYPE_ALIASES.get(raw_target, m.group(2))
         if target_type not in {'f', 'b', STRING_TYPE, UNI_STRING_TYPE} and not is_integer_type(target_type):
             raise MorganicError(f"Unsupported conversion target: {m.group(2)}")
-        value = get_var(state, name)
-        src_type = state.types.get(name, infer_type_code(value))
+        value, src_type = get_var_with_type(state, name)
+        src_type = src_type or infer_type_code(value)
         new_value, new_type = convert_value(value, src_type, target_type)
         state.env[name] = new_value
         state.types[name] = new_type
@@ -955,8 +961,8 @@ def execute_statement(stmt: str, state: MorganicState) -> None:
     m = re.fullmatch(r"\[(\w+)\]£m", stmt)
     if m:
         name = m.group(1)
-        value = get_var(state, name)
-        src_type = state.types.get(name, infer_type_code(value))
+        value, src_type = get_var_with_type(state, name)
+        src_type = src_type or infer_type_code(value)
         new_value, new_type = convert_value(value, src_type, 'm')
         state.env[name] = new_value
         state.types[name] = new_type
