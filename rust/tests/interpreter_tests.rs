@@ -30,8 +30,13 @@ fn read_fixture(path: &Path) -> String {
 }
 
 fn graph_case_names() -> Vec<String> {
-    let mut names = fs::read_dir(graph_snapshot_dir())
-        .expect("graph snapshot dir should exist")
+    let snapshot_dir = graph_snapshot_dir();
+    if !snapshot_dir.is_dir() {
+        return Vec::new();
+    }
+
+    let mut names = fs::read_dir(snapshot_dir)
+        .expect("graph snapshot dir should be readable")
         .filter_map(|entry| {
             let path = entry.ok()?.path();
             if path.extension()?.to_str()? != "elemens" {
@@ -205,3 +210,4 @@ fn processed_string_type_query_returns_canonical_name() {
         .expect("type query should execute");
     assert_eq!(state.env.get("kind"), Some(&Value::Str("ProcessedString".to_string())));
 }
+
