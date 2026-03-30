@@ -150,8 +150,10 @@ No Python is required in this runtime path.
 
 - Number: `^42^`, `^3.14^`
 - Typed integer: `i8^12^`
-- String: `£hello`
-- Processed string: `&£hello $$[name], sum=$$|10+8|`
+- String: `£hello, just a normal string`
+- Processed String: `&£hello $$[name], sum=$$|10+8|`
+- Special String: `££This is useful! for strings. containing: Special Characters#££`
+- UniString: `?£Only read once`
 - Boolean: `b/` or `b\`
 - Typed list: `l(i4)<i4^1^,i4^2^>` or `l(£)<£a,£b>`
 - Nested typed list / matrix list: `l(l(i))<l(i)<^1^>,l(i)<^2^>>`, `l(m)<m<0,1><2,3>>`
